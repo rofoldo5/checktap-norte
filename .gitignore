@@ -46,3 +46,16 @@ checktap-portainer.env
 *.dump
 backend/.env.local.example
 deploy/portainer/
+
+# Incluir archivos de despliegue de Portainer
+!deploy/
+deploy/*
+!deploy/portainer/
+!deploy/portainer/**
+
+# Nunca publicar secretos reales
+deploy/portainer/.env.portainer
+checktap-portainer.env
+
+# Sí publicar la plantilla de variables
+!deploy/portainer/.env.portainer.example
