@@ -1,0 +1,139 @@
+{
+  "application": "CheckTap",
+  "started_at": "2026-08-04T20:04:24.660304+00:00",
+  "base_url": "http://127.0.0.1:8000",
+  "run_id": "20260804160424oobm",
+  "result": "PASS",
+  "steps": [
+    {
+      "name": "health",
+      "status": "PASS"
+    },
+    {
+      "name": "admin_login",
+      "status": "PASS"
+    },
+    {
+      "name": "create_user",
+      "status": "PASS"
+    },
+    {
+      "name": "test_user_login",
+      "status": "PASS"
+    },
+    {
+      "name": "websocket_connect",
+      "status": "PASS"
+    },
+    {
+      "name": "create_and_assign_task",
+      "status": "PASS"
+    },
+    {
+      "name": "shared_pending_visibility",
+      "status": "PASS"
+    },
+    {
+      "name": "start_task",
+      "status": "PASS"
+    },
+    {
+      "name": "complete_task",
+      "status": "PASS"
+    },
+    {
+      "name": "two_session_consistency",
+      "status": "PASS"
+    },
+    {
+      "name": "duplicate_completion_guard",
+      "status": "PASS"
+    },
+    {
+      "name": "daily_pdf",
+      "status": "PASS"
+    },
+    {
+      "name": "realtime_events",
+      "status": "PASS"
+    }
+  ],
+  "websocket_events": [
+    {
+      "event": "connected"
+    },
+    {
+      "event": "task.created",
+      "task_id": "be9d853e-a4a8-44d3-80ce-1431b514bdd5"
+    },
+    {
+      "event": "task.updated",
+      "task_id": "be9d853e-a4a8-44d3-80ce-1431b514bdd5"
+    },
+    {
+      "event": "task.completed",
+      "task_id": "be9d853e-a4a8-44d3-80ce-1431b514bdd5"
+    }
+  ],
+  "test_user": {
+    "name": "Validador CheckTap 24oobm",
+    "email": "validacion.20260804160424oobm@example.com",
+    "id": "9c84c8d9-3999-42f8-ab85-fd471b628f66"
+  },
+  "task": {
+    "title": "Validacion integral CheckTap 20260804160424oobm",
+    "id": "be9d853e-a4a8-44d3-80ce-1431b514bdd5",
+    "initial": {
+      "id": "be9d853e-a4a8-44d3-80ce-1431b514bdd5",
+      "title": "Validacion integral CheckTap 20260804160424oobm",
+      "description": "Tarea creada automaticamente para validar asignacion, cambio de estado, finalizacion, sesiones compartidas y sincronizacion WebSocket.",
+      "status": "PENDIENTE",
+      "priority": "ALTA",
+      "created_by": {
+        "id": "7867f860-b62b-4205-b5e7-4963edae3302",
+        "name": "Administrador",
+        "email": "admin@checktap.com"
+      },
+      "assigned_to": {
+        "id": "9c84c8d9-3999-42f8-ab85-fd471b628f66",
+        "name": "Validador CheckTap 24oobm",
+        "email": "validacion.20260804160424oobm@example.com"
+      },
+      "completed_by": null,
+      "created_at": "2026-08-04T20:04:24.959585Z",
+      "updated_at": "2026-08-04T20:04:24.959589Z",
+      "completed_at": null
+    },
+    "completed": {
+      "id": "be9d853e-a4a8-44d3-80ce-1431b514bdd5",
+      "title": "Validacion integral CheckTap 20260804160424oobm",
+      "description": "Tarea creada automaticamente para validar asignacion, cambio de estado, finalizacion, sesiones compartidas y sincronizacion WebSocket.",
+      "status": "COMPLETADA",
+      "priority": "ALTA",
+      "created_by": {
+        "id": "7867f860-b62b-4205-b5e7-4963edae3302",
+        "name": "Administrador",
+        "email": "admin@checktap.com"
+      },
+      "assigned_to": {
+        "id": "9c84c8d9-3999-42f8-ab85-fd471b628f66",
+        "name": "Validador CheckTap 24oobm",
+        "email": "validacion.20260804160424oobm@example.com"
+      },
+      "completed_by": {
+        "id": "9c84c8d9-3999-42f8-ab85-fd471b628f66",
+        "name": "Validador CheckTap 24oobm",
+        "email": "validacion.20260804160424oobm@example.com"
+      },
+      "created_at": "2026-08-04T20:04:24.959585Z",
+      "updated_at": "2026-08-04T20:04:24.992320Z",
+      "completed_at": "2026-08-04T20:04:24.991792Z"
+    }
+  },
+  "admin": {
+    "id": "7867f860-b62b-4205-b5e7-4963edae3302",
+    "email": "admin@checktap.com"
+  },
+  "pdf_bytes": 1840,
+  "finished_at": "2026-08-04T20:04:25.025978+00:00"
+}

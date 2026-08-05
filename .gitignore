@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+
+node_modules/
+vendor/
+build/
+.dart_tool/
+
+*.log
+.DS_Store

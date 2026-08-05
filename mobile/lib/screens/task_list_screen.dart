@@ -1,0 +1,921 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+
+import '../core/task_permissions.dart';
+import '../data/repositories/task_repository.dart';
+import '../models/app_user.dart';
+import '../models/task_item.dart';
+import '../services/background_sync.dart';
+import '../services/realtime_service.dart';
+import '../services/session_store.dart';
+import '../services/sync_trigger_service.dart';
+import 'report_screen.dart';
+import 'task_detail_screen.dart';
+import 'user_management_screen.dart';
+
+class TaskListScreen extends StatefulWidget {
+  const TaskListScreen({required this.session, super.key});
+
+  final SessionStore session;
+
+  @override
+  State<TaskListScreen> createState() => _TaskListScreenState();
+}
+
+class _TaskListScreenState extends State<TaskListScreen>
+    with WidgetsBindingObserver {
+  late final TaskRepository _repository;
+  final RealtimeService _realtimeService = RealtimeService();
+  final SyncTriggerService _syncTriggerService = SyncTriggerService();
+
+  List<TaskItem> _tasks = <TaskItem>[];
+  List<AppUser> _users = <AppUser>[];
+  bool _loading = true;
+  bool _syncRunning = false;
+  bool _realtimeConnected = false;
+  bool _offlineMode = false;
+  bool _usingCachedData = false;
+  String? _error;
+  String _filter = 'TODAS';
+  DateTime? _lastSyncAt;
+  int _pendingOperations = 0;
+
+  String? get _statusFilter => _filter == 'TODAS' ? null : _filter;
+
+  bool get _hasCachedContent {
+    return _tasks.isNotEmpty || _users.isNotEmpty || _lastSyncAt != null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _repository = TaskRepository(widget.session.apiClient);
+    _offlineMode = widget.session.offlineSession;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _startServices();
+    });
+  }
+
+  Future<void> _startServices() async {
+    await _loadOfflineFirst();
+    _syncTriggerService.start(() async {
+      await _synchronizeAndRefresh(showLoader: false);
+    });
+    _realtimeService.connect(
+      token: widget.session.token!,
+      onTaskChanged: () {
+        unawaited(_synchronizeAndRefresh(showLoader: false));
+      },
+      onConnectionChanged: (connected) {
+        if (mounted && _realtimeConnected != connected) {
+          setState(() => _realtimeConnected = connected);
+        }
+      },
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_synchronizeAndRefresh(showLoader: false));
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _syncTriggerService.dispose();
+    _realtimeService.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadOfflineFirst() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    var cacheHasContent = false;
+    try {
+      final cached = await _repository.loadCached(status: _statusFilter);
+      cacheHasContent = cached.hasContent;
+      if (mounted && cacheHasContent) {
+        _applyDashboardData(cached, cachedData: true);
+      }
+    } catch (error, stackTrace) {
+      debugPrint('[OFFLINE] No fue posible leer la cache: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+
+    await _synchronizeAndRefresh(showLoader: !cacheHasContent);
+  }
+
+  Future<void> _loadCachedForCurrentFilter() async {
+    try {
+      final cached = await _repository.loadCached(status: _statusFilter);
+      if (!mounted) {
+        return;
+      }
+      _applyDashboardData(cached, cachedData: true);
+    } catch (error, stackTrace) {
+      debugPrint('[OFFLINE] Error leyendo cache filtrada: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  void _applyDashboardData(DashboardData data, {required bool cachedData}) {
+    setState(() {
+      _tasks = data.tasks;
+      _users = data.users;
+      _lastSyncAt = data.lastSyncAt;
+      _pendingOperations = data.pendingOperations;
+      _usingCachedData = cachedData;
+      _loading = false;
+    });
+  }
+
+  Future<void> _synchronizeAndRefresh({required bool showLoader}) async {
+    if (_syncRunning || !widget.session.isAuthenticated) {
+      return;
+    }
+
+    _syncRunning = true;
+    if (mounted) {
+      setState(() {
+        if (showLoader) {
+          _loading = true;
+        }
+        _error = null;
+      });
+    }
+
+    try {
+      final summary = await _repository.synchronizePending();
+      if (summary.unauthorized) {
+        await _returnToLogin();
+        return;
+      }
+
+      final data = await _repository.refreshFromServer(status: _statusFilter);
+      await widget.session.markServerAvailable();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _tasks = data.tasks;
+        _users = data.users;
+        _lastSyncAt = data.lastSyncAt;
+        _pendingOperations = data.pendingOperations;
+        _offlineMode = false;
+        _usingCachedData = false;
+        _error = null;
+      });
+
+      if (summary.conflicts > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${summary.conflicts} cambio(s) entraron en conflicto. '
+              'Se conserva la version confirmada por el servidor.',
+            ),
+          ),
+        );
+      }
+    } on DioException catch (error) {
+      if (_isUnauthorized(error)) {
+        await _returnToLogin();
+        return;
+      }
+
+      await _loadCachedForCurrentFilter();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _offlineMode = true;
+        _usingCachedData = _hasCachedContent;
+        _error = _hasCachedContent ? null : _messageFromError(error);
+      });
+    } catch (error, stackTrace) {
+      debugPrint('[DASHBOARD] Error sincronizando datos: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      await _loadCachedForCurrentFilter();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _offlineMode = true;
+        _usingCachedData = _hasCachedContent;
+        _error = _hasCachedContent
+            ? null
+            : 'No fue posible cargar datos locales ni remotos: $error';
+      });
+    } finally {
+      _syncRunning = false;
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _returnToLogin() async {
+    await widget.session.logout();
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+  }
+
+  bool _isUnauthorized(DioException error) {
+    final statusCode = error.response?.statusCode;
+    return statusCode == 401 || statusCode == 403;
+  }
+
+  String _messageFromError(DioException error) {
+    final data = error.response?.data;
+    if (data is Map<String, dynamic> && data['detail'] != null) {
+      return data['detail'].toString();
+    }
+    return 'No fue posible conectar con el servidor.';
+  }
+
+  Future<void> _runTaskAction(Future<TaskItem> Function() action) async {
+    try {
+      await action();
+      await _loadCachedForCurrentFilter();
+      await BackgroundSyncScheduler.scheduleOneOff();
+      unawaited(_synchronizeAndRefresh(showLoader: false));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> _showCreateDialog() async {
+    final titleController = TextEditingController();
+    final descriptionController = TextEditingController();
+    String priority = 'MEDIA';
+    String? assignedToId;
+    bool saving = false;
+    String? dialogError;
+
+    final created = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> save() async {
+              if (titleController.text.trim().length < 2) {
+                setDialogState(() => dialogError = 'Ingrese un titulo valido.');
+                return;
+              }
+
+              setDialogState(() {
+                saving = true;
+                dialogError = null;
+              });
+
+              try {
+                AppUser? assignedTo;
+                for (final user in _users) {
+                  if (user.id == assignedToId) {
+                    assignedTo = user;
+                    break;
+                  }
+                }
+                await _repository.createTask(
+                  currentUser: widget.session.user!,
+                  title: titleController.text,
+                  description: descriptionController.text,
+                  priority: priority,
+                  assignedTo: assignedTo,
+                );
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop(true);
+                }
+              } catch (error) {
+                if (dialogContext.mounted) {
+                  setDialogState(() {
+                    saving = false;
+                    dialogError = error.toString();
+                  });
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Nueva tarea'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    TextField(
+                      controller: titleController,
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: 'Titulo',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: descriptionController,
+                      enabled: !saving,
+                      minLines: 3,
+                      maxLines: 5,
+                      decoration: const InputDecoration(
+                        labelText: 'Descripcion',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      initialValue: priority,
+                      decoration: const InputDecoration(
+                        labelText: 'Prioridad',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const <DropdownMenuItem<String>>[
+                        DropdownMenuItem(value: 'BAJA', child: Text('Baja')),
+                        DropdownMenuItem(value: 'MEDIA', child: Text('Media')),
+                        DropdownMenuItem(value: 'ALTA', child: Text('Alta')),
+                      ],
+                      onChanged: saving
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                setDialogState(() => priority = value);
+                              }
+                            },
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      initialValue: assignedToId,
+                      decoration: const InputDecoration(
+                        labelText: 'Asignar a',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _users
+                          .map(
+                            (user) => DropdownMenuItem<String>(
+                              value: user.id,
+                              child: Text(user.name),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: saving
+                          ? null
+                          : (value) =>
+                                setDialogState(() => assignedToId = value),
+                    ),
+                    if (dialogError != null) ...<Widget>[
+                      const SizedBox(height: 12),
+                      Text(
+                        dialogError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: saving
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: saving ? null : save,
+                  child: saving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Crear'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    titleController.dispose();
+    descriptionController.dispose();
+
+    if (created == true) {
+      await _loadCachedForCurrentFilter();
+      await BackgroundSyncScheduler.scheduleOneOff();
+      unawaited(_synchronizeAndRefresh(showLoader: false));
+    }
+  }
+
+  Future<void> _changeFilter(String value) async {
+    setState(() => _filter = value);
+    await _loadCachedForCurrentFilter();
+    unawaited(_synchronizeAndRefresh(showLoader: _tasks.isEmpty));
+  }
+
+  Future<void> _resolveConflict(TaskItem task) async {
+    await _repository.resolveConflict(task.id);
+    await _loadCachedForCurrentFilter();
+  }
+
+  Future<void> _openTask(TaskItem task) async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => TaskDetailScreen(
+          session: widget.session,
+          task: task,
+          users: _users,
+        ),
+      ),
+    );
+    if (changed == true && mounted) {
+      await _loadCachedForCurrentFilter();
+      unawaited(_synchronizeAndRefresh(showLoader: false));
+    }
+  }
+
+  Future<void> _openUsers() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => UserManagementScreen(session: widget.session),
+      ),
+    );
+    if (mounted) {
+      unawaited(_synchronizeAndRefresh(showLoader: false));
+    }
+  }
+
+  Future<void> _openReports() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ReportScreen(session: widget.session),
+      ),
+    );
+  }
+
+  String _connectionTooltip() {
+    if (_offlineMode) {
+      return 'Modo sin conexion';
+    }
+    if (_realtimeConnected) {
+      return 'Servidor y tiempo real conectados';
+    }
+    return 'Servidor disponible; tiempo real reconectando';
+  }
+
+  IconData _connectionIcon() {
+    if (_offlineMode) {
+      return Icons.cloud_off;
+    }
+    if (_realtimeConnected) {
+      return Icons.cloud_done;
+    }
+    return Icons.cloud_queue;
+  }
+
+  String _formatLastSync() {
+    final value = _lastSyncAt?.toLocal();
+    if (value == null) {
+      return 'Sin sincronizacion previa';
+    }
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${twoDigits(value.day)}/${twoDigits(value.month)}/${value.year} '
+        '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Tareas compartidas'),
+        actions: <Widget>[
+          if (_pendingOperations > 0)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Badge(
+                  label: Text('$_pendingOperations'),
+                  child: const Icon(Icons.sync_problem),
+                ),
+              ),
+            ),
+          IconButton(
+            tooltip: 'Sincronizar ahora',
+            onPressed: _syncRunning
+                ? null
+                : () => _synchronizeAndRefresh(showLoader: false),
+            icon: _syncRunning
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync),
+          ),
+          Tooltip(
+            message: _connectionTooltip(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Icon(_connectionIcon()),
+            ),
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value == 'users') {
+                await _openUsers();
+                return;
+              }
+              if (value == 'reports') {
+                await _openReports();
+                return;
+              }
+              if (value == 'logout') {
+                await widget.session.logout();
+                if (!context.mounted) {
+                  return;
+                }
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/login', (route) => false);
+              }
+            },
+            itemBuilder: (context) => <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                enabled: false,
+                child: Text(widget.session.user!.name),
+              ),
+              const PopupMenuDivider(),
+              if (widget.session.user!.isAdmin)
+                const PopupMenuItem<String>(
+                  value: 'users',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.people),
+                    title: Text('Usuarios'),
+                  ),
+                ),
+              const PopupMenuItem<String>(
+                value: 'reports',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.picture_as_pdf),
+                  title: Text('Informe diario'),
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'logout',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.logout),
+                  title: Text('Cerrar sesion'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showCreateDialog,
+        icon: const Icon(Icons.add),
+        label: const Text('Nueva tarea'),
+      ),
+      body: Column(
+        children: <Widget>[
+          if (_offlineMode || _usingCachedData || _pendingOperations > 0)
+            _buildConnectionBanner(),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            child: SegmentedButton<String>(
+              segments: const <ButtonSegment<String>>[
+                ButtonSegment<String>(value: 'TODAS', label: Text('Todas')),
+                ButtonSegment<String>(
+                  value: 'PENDIENTE',
+                  label: Text('Pendientes'),
+                ),
+                ButtonSegment<String>(
+                  value: 'EN_PROGRESO',
+                  label: Text('En progreso'),
+                ),
+                ButtonSegment<String>(
+                  value: 'COMPLETADA',
+                  label: Text('Completadas'),
+                ),
+              ],
+              selected: <String>{_filter},
+              onSelectionChanged: (selection) {
+                _changeFilter(selection.first);
+              },
+            ),
+          ),
+          Expanded(child: _buildBody()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConnectionBanner() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final offline = _offlineMode;
+    final title = offline
+        ? 'Modo sin conexion'
+        : _pendingOperations > 0
+        ? 'Cambios pendientes de sincronizacion'
+        : 'Mostrando datos guardados mientras se actualiza';
+    final detail = _pendingOperations > 0
+        ? '$_pendingOperations operacion(es) pendientes. Ultima sincronizacion: ${_formatLastSync()}'
+        : 'Ultima sincronizacion: ${_formatLastSync()}';
+
+    return Container(
+      width: double.infinity,
+      color: offline
+          ? colorScheme.errorContainer
+          : colorScheme.secondaryContainer,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: <Widget>[
+          Icon(offline ? Icons.cloud_off : Icons.sync),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                Text(detail, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading && _tasks.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null && _tasks.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(Icons.cloud_off, size: 48),
+              const SizedBox(height: 12),
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: () => _synchronizeAndRefresh(showLoader: true),
+                child: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_tasks.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: () => _synchronizeAndRefresh(showLoader: false),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: <Widget>[
+            const SizedBox(height: 150),
+            const Icon(Icons.inbox_outlined, size: 58),
+            const SizedBox(height: 12),
+            const Center(child: Text('No hay tareas en esta vista.')),
+            if (_offlineMode) ...<Widget>[
+              const SizedBox(height: 8),
+              const Center(
+                child: Text(
+                  'Puede crear tareas; se enviaran al recuperar conexion.',
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => _synchronizeAndRefresh(showLoader: false),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
+        itemCount: _tasks.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final task = _tasks[index];
+          final currentUser = widget.session.user!;
+          return _TaskCard(
+            key: ValueKey<String>(task.id),
+            task: task,
+            canEdit: canEditTask(currentUser, task),
+            canWork: canWorkTask(currentUser, task),
+            canReopen: canReopenTask(currentUser, task),
+            onOpen: () => _openTask(task),
+            onStart: () => _runTaskAction(() => _repository.startTask(task)),
+            onComplete: () => _runTaskAction(
+              () => _repository.completeTask(task, currentUser),
+            ),
+            onReopen: () => _runTaskAction(() => _repository.reopenTask(task)),
+            onResolveConflict: () => _resolveConflict(task),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _TaskCard extends StatelessWidget {
+  const _TaskCard({
+    super.key,
+    required this.task,
+    required this.canEdit,
+    required this.canWork,
+    required this.canReopen,
+    required this.onOpen,
+    required this.onStart,
+    required this.onComplete,
+    required this.onReopen,
+    required this.onResolveConflict,
+  });
+
+  final TaskItem task;
+  final bool canEdit;
+  final bool canWork;
+  final bool canReopen;
+  final VoidCallback onOpen;
+  final VoidCallback onStart;
+  final VoidCallback onComplete;
+  final VoidCallback onReopen;
+  final VoidCallback onResolveConflict;
+
+  @override
+  Widget build(BuildContext context) {
+    final completed = task.status == 'COMPLETADA';
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      task.title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        decoration: completed
+                            ? TextDecoration.lineThrough
+                            : null,
+                      ),
+                    ),
+                  ),
+                  _Tag(label: task.priority),
+                ],
+              ),
+              if (task.description?.isNotEmpty == true) ...<Widget>[
+                const SizedBox(height: 8),
+                Text(
+                  task.description!,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: <Widget>[
+                  _Tag(label: task.status.replaceAll('_', ' ')),
+                  _SyncTag(state: task.syncState),
+                  Text('v${task.version}'),
+                  Text('Creador: ${task.createdBy.name}'),
+                  Text('Asignada a: ${task.assignedTo?.name ?? 'Sin asignar'}'),
+                  if (task.completedBy != null)
+                    Text('Completada por: ${task.completedBy!.name}'),
+                ],
+              ),
+              if (task.syncError != null) ...<Widget>[
+                const SizedBox(height: 10),
+                Text(
+                  task.syncError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 6,
+                runSpacing: 6,
+                children: <Widget>[
+                  TextButton.icon(
+                    onPressed: onOpen,
+                    icon: Icon(canEdit ? Icons.edit : Icons.visibility),
+                    label: Text(canEdit ? 'Detalle / editar' : 'Detalle'),
+                  ),
+                  if (task.syncState == LocalSyncState.conflict)
+                    TextButton.icon(
+                      onPressed: onResolveConflict,
+                      icon: const Icon(Icons.rule),
+                      label: const Text('Aceptar servidor'),
+                    ),
+                  if (task.status == 'PENDIENTE' && canWork)
+                    TextButton.icon(
+                      onPressed: onStart,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Iniciar'),
+                    ),
+                  if (!completed && canWork)
+                    FilledButton.icon(
+                      onPressed: onComplete,
+                      icon: const Icon(Icons.check),
+                      label: const Text('Completar'),
+                    ),
+                  if (completed && canReopen)
+                    OutlinedButton.icon(
+                      onPressed: onReopen,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reabrir'),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncTag extends StatelessWidget {
+  const _SyncTag({required this.state});
+
+  final LocalSyncState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, label) = switch (state) {
+      LocalSyncState.synced => (Icons.cloud_done, 'Sincronizada'),
+      LocalSyncState.pending => (Icons.schedule, 'Pendiente'),
+      LocalSyncState.syncing => (Icons.sync, 'Sincronizando'),
+      LocalSyncState.error => (Icons.error_outline, 'Error'),
+      LocalSyncState.conflict => (Icons.warning_amber, 'Conflicto'),
+    };
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(icon, size: 16),
+        const SizedBox(width: 4),
+        Text(label),
+      ],
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  const _Tag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        child: Text(label, style: Theme.of(context).textTheme.labelMedium),
+      ),
+    );
+  }
+}

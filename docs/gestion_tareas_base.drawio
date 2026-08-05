@@ -1,0 +1,187 @@
+<mxfile host="app.diagrams.net" modified="2026-07-31T20:32:00.000Z" agent="ChatGPT" version="24.7.17" type="device" compressed="false">
+  <diagram id="arquitectura" name="1. Arquitectura general">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title1" value="Aplicación colaborativa de gestión de tareas" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=24;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1">
+          <mxGeometry x="310" y="30" width="550" height="40" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="flutter" value="&lt;b&gt;Aplicación móvil Flutter&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Inicio de sesión&lt;br&gt;• Lista compartida&lt;br&gt;• Crear y completar tareas&lt;br&gt;• Sincronización local&lt;br&gt;• Recepción de notificaciones" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F0FE;strokeColor=#4A86E8;fontColor=#1F2937;fontSize=14;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="170" width="270" height="190" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="backend" value="&lt;b&gt;Backend FastAPI&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Autenticación JWT&lt;br&gt;• API REST&lt;br&gt;• WebSocket tiempo real&lt;br&gt;• Reglas de tareas&lt;br&gt;• Generación de PDF&lt;br&gt;• Firebase Admin SDK" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F4EA;strokeColor=#34A853;fontColor=#1F2937;fontSize=14;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="450" y="150" width="280" height="230" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="postgres" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Usuarios&lt;br&gt;• Tareas&lt;br&gt;• Tokens FCM&lt;br&gt;• Informes diarios&lt;br&gt;• Historial básico" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#FFF2CC;strokeColor=#D6B656;fontColor=#1F2937;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="825" y="175" width="220" height="180" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="firebase" value="&lt;b&gt;Firebase Cloud Messaging&lt;/b&gt;&lt;br&gt;&lt;br&gt;• Notificaciones push&lt;br&gt;• Segundo plano&lt;br&gt;• Recordatorios diarios" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE8E6;strokeColor=#EA4335;fontColor=#1F2937;fontSize=14;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="455" y="490" width="270" height="150" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="portainer" value="&lt;b&gt;Portainer / Docker&lt;/b&gt;&lt;br&gt;&lt;br&gt;Contenedores iniciales:&lt;br&gt;• task-backend&lt;br&gt;• task-postgres&lt;br&gt;• reverse-proxy opcional" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E8FD;strokeColor=#8E44AD;fontColor=#1F2937;fontSize=14;arcSize=12;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="805" y="470" width="260" height="180" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge_flutter_backend" value="REST + WebSocket" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#4A86E8;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="flutter" target="backend">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge_backend_db" value="SQLAlchemy" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#34A853;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="backend" target="postgres">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge_backend_firebase" value="Envía notificaciones" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#EA4335;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="backend" target="firebase">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge_firebase_flutter" value="Push FCM" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#EA4335;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="firebase" target="flutter">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="215" y="565"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="edge_portainer_backend" value="Despliega" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#8E44AD;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1" source="portainer" target="backend">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge_portainer_db" value="Volumen persistente" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#8E44AD;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1" source="portainer" target="postgres">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="note1" value="&lt;b&gt;Base sencilla:&lt;/b&gt; PostgreSQL conserva los datos; Flutter consume la API; WebSocket replica los cambios; Firebase entrega notificaciones." style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFFFFF;strokeColor=#9CA3AF;fontColor=#374151;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="90" y="700" width="950" height="70" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="flujo" name="2. Flujo de una tarea">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0f"/>
+        <mxCell id="1f" parent="0f"/>
+
+        <mxCell id="title2" value="Flujo básico de creación, asignación y finalización" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=24;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1f">
+          <mxGeometry x="260" y="35" width="650" height="40" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="start" value="Usuario inicia sesión" style="ellipse;whiteSpace=wrap;html=1;fillColor=#E8F0FE;strokeColor=#4A86E8;fontSize=14;fontStyle=1;" vertex="1" parent="1f">
+          <mxGeometry x="55" y="180" width="160" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="create" value="&lt;b&gt;Crear tarea&lt;/b&gt;&lt;br&gt;Título&lt;br&gt;Descripción&lt;br&gt;Prioridad&lt;br&gt;Usuario asignado" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#4A86E8;fontSize=14;arcSize=12;" vertex="1" parent="1f">
+          <mxGeometry x="270" y="145" width="190" height="150" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="save" value="Backend valida y guarda en PostgreSQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F4EA;strokeColor=#34A853;fontSize=14;arcSize=12;" vertex="1" parent="1f">
+          <mxGeometry x="520" y="165" width="210" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="sync" value="WebSocket actualiza los demás dispositivos" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E8FD;strokeColor=#8E44AD;fontSize=14;arcSize=12;" vertex="1" parent="1f">
+          <mxGeometry x="790" y="165" width="220" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="notify" value="Firebase notifica al usuario asignado" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE8E6;strokeColor=#EA4335;fontSize=14;arcSize=12;" vertex="1" parent="1f">
+          <mxGeometry x="790" y="380" width="220" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="complete" value="Usuario pulsa Completar" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=14;fontStyle=1;arcSize=12;" vertex="1" parent="1f">
+          <mxGeometry x="515" y="385" width="220" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="record" value="Backend registra:&lt;br&gt;• Estado = COMPLETADA&lt;br&gt;• completed_by&lt;br&gt;• completed_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F4EA;strokeColor=#34A853;fontSize=14;arcSize=12;" vertex="1" parent="1f">
+          <mxGeometry x="255" y="365" width="220" height="130" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="report" value="Informe diario PDF" style="ellipse;whiteSpace=wrap;html=1;fillColor=#E8F0FE;strokeColor=#4A86E8;fontSize=14;fontStyle=1;" vertex="1" parent="1f">
+          <mxGeometry x="55" y="390" width="160" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="f1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1f" source="start" target="create"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1f" source="create" target="save"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1f" source="save" target="sync"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f4" value="Push" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#EA4335;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1f" source="sync" target="notify"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f5" value="Realiza la tarea" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1f" source="notify" target="complete"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f6" value="POST /complete" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1f" source="complete" target="record"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f7" value="Se incluye en el resumen" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1f" source="record" target="report"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f8" value="Actualización final" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#8E44AD;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1f" source="record" target="sync">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="625" y="330"/><mxPoint x="900" y="330"/></Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="note2" value="El informe diario consulta las tareas con estado COMPLETADA y fecha de finalización correspondiente al día seleccionado." style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFFFFF;strokeColor=#9CA3AF;fontColor=#374151;fontSize=13;" vertex="1" parent="1f">
+          <mxGeometry x="180" y="620" width="790" height="80" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="datos" name="3. Modelo de datos">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0d"/>
+        <mxCell id="1d" parent="0d"/>
+
+        <mxCell id="title3" value="Modelo de datos simplificado" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;fontSize=24;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1d">
+          <mxGeometry x="385" y="30" width="400" height="40" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="users" value="&lt;b&gt;USERS&lt;/b&gt;&lt;hr&gt;&lt;b&gt;id&lt;/b&gt; UUID PK&lt;br&gt;name VARCHAR&lt;br&gt;email VARCHAR UNIQUE&lt;br&gt;password_hash VARCHAR&lt;br&gt;is_active BOOLEAN&lt;br&gt;created_at TIMESTAMPTZ" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8F0FE;strokeColor=#4A86E8;fontColor=#1F2937;fontSize=13;align=left;spacingLeft=12;verticalAlign=top;spacingTop=10;" vertex="1" parent="1d">
+          <mxGeometry x="70" y="170" width="260" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="tasks" value="&lt;b&gt;TASKS&lt;/b&gt;&lt;hr&gt;&lt;b&gt;id&lt;/b&gt; UUID PK&lt;br&gt;title VARCHAR(150)&lt;br&gt;description TEXT&lt;br&gt;status VARCHAR(20)&lt;br&gt;priority VARCHAR(10)&lt;br&gt;created_by UUID FK&lt;br&gt;assigned_to UUID FK&lt;br&gt;completed_by UUID FK NULL&lt;br&gt;created_at TIMESTAMPTZ&lt;br&gt;completed_at TIMESTAMPTZ NULL" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E6F4EA;strokeColor=#34A853;fontColor=#1F2937;fontSize=13;align=left;spacingLeft=12;verticalAlign=top;spacingTop=10;" vertex="1" parent="1d">
+          <mxGeometry x="450" y="120" width="290" height="340" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="tokens" value="&lt;b&gt;DEVICE_TOKENS&lt;/b&gt;&lt;hr&gt;&lt;b&gt;id&lt;/b&gt; UUID PK&lt;br&gt;user_id UUID FK&lt;br&gt;token TEXT UNIQUE&lt;br&gt;platform VARCHAR&lt;br&gt;is_active BOOLEAN&lt;br&gt;created_at TIMESTAMPTZ" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FCE8E6;strokeColor=#EA4335;fontColor=#1F2937;fontSize=13;align=left;spacingLeft=12;verticalAlign=top;spacingTop=10;" vertex="1" parent="1d">
+          <mxGeometry x="830" y="150" width="260" height="230" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="reports" value="&lt;b&gt;DAILY_REPORTS&lt;/b&gt;&lt;hr&gt;&lt;b&gt;id&lt;/b&gt; UUID PK&lt;br&gt;report_date DATE&lt;br&gt;total_tasks INTEGER&lt;br&gt;completed_tasks INTEGER&lt;br&gt;pending_tasks INTEGER&lt;br&gt;pdf_path TEXT&lt;br&gt;generated_at TIMESTAMPTZ" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontColor=#1F2937;fontSize=13;align=left;spacingLeft=12;verticalAlign=top;spacingTop=10;" vertex="1" parent="1d">
+          <mxGeometry x="455" y="560" width="280" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="r_created" value="creada por" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;strokeWidth=2;strokeColor=#4A86E8;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1d" source="users" target="tasks">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="390" y="220" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <mxCell id="r_assigned" value="asignada a" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;strokeWidth=2;strokeColor=#8E44AD;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1d" source="users" target="tasks">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="380" y="330"/></Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="r_completed" value="completada por" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;strokeWidth=2;strokeColor=#D6B656;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1d" source="users" target="tasks">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="370" y="430"/><mxPoint x="450" y="430"/></Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="r_tokens" value="tiene dispositivos" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;strokeWidth=2;strokeColor=#EA4335;fontSize=13;labelBackgroundColor=#FFFFFF;" edge="1" parent="1d" source="users" target="tokens">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="390" y="90"/><mxPoint x="960" y="90"/></Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="r_reports" value="resume tareas por fecha" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#34A853;fontSize=13;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1d" source="tasks" target="reports">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="status_note" value="&lt;b&gt;Valores controlados&lt;/b&gt;&lt;br&gt;&lt;br&gt;Estado: PENDIENTE, EN_PROGRESO, COMPLETADA&lt;br&gt;Prioridad: BAJA, MEDIA, ALTA" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=15;fillColor=#FFFFFF;strokeColor=#9CA3AF;fontColor=#374151;fontSize=13;" vertex="1" parent="1d">
+          <mxGeometry x="820" y="520" width="280" height="150" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

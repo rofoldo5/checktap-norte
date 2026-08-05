@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: checktap-postgres-local
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: checktap
+      POSTGRES_USER: checktap
+      POSTGRES_PASSWORD: CheckTapLocal2026
+    ports:
+      - "5433:5432"
+    volumes:
+      - checktap_postgres_local_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U checktap -d checktap"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  checktap_postgres_local_data:
