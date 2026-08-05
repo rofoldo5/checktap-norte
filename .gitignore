@@ -58,4 +58,10 @@ deploy/portainer/.env.portainer
 checktap-portainer.env
 
 # Sí publicar la plantilla de variables
-!deploy/portainer/.env.portainer.example
+deploy/portainer/.env.portainer.example
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
