@@ -1,11 +1,48 @@
+# Secrets and local environment
 .env
 .env.*
 !.env.example
+!.env.*.example
+*.pem
+*.key
 
-node_modules/
-vendor/
-build/
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+*.db
+*.sqlite
+*.sqlite3
+
+# Flutter and Dart
 .dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+build/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/ios/Flutter/ephemeral/
+mobile/ios/Pods/
 
+# Runtime output
+backups/
+validation_reports/
 *.log
-.DS_Store
+dist/*.apk
+dist/*.aab
+dist/*.ipa
+
+# Portainer generated secrets
+.env.portainer
+
+# CheckTap Portainer secrets
+deploy/portainer/.env.portainer
+checktap-portainer.env
+*.dump
+backend/.env.local.example
+deploy/portainer/
