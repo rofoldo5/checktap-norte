@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -21,3 +21,18 @@ class User(Base):
         default=lambda: datetime.now(UTC),
         nullable=False,
     )
+
+    department_memberships: Mapped[list["DepartmentMember"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    @property
+    def department_ids(self) -> list[UUID]:
+        return [
+            membership.department_id
+            for membership in self.department_memberships
+            if membership.is_active and membership.department.is_active
+        ]
+

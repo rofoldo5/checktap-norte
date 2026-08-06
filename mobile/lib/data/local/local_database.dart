@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
@@ -6,7 +8,7 @@ class LocalDatabase {
 
   static final LocalDatabase instance = LocalDatabase._();
 
-  static const int _databaseVersion = 6;
+  static const int _databaseVersion = 8;
   static const String _databaseName = 'checktap_cache.db';
 
   Database? _database;
@@ -105,6 +107,62 @@ class LocalDatabase {
             'value': '6',
           }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
+        if (oldVersion < 7) {
+          await database.execute(
+            "ALTER TABLE cached_users ADD COLUMN department_ids_json TEXT NOT NULL DEFAULT '[]'",
+          );
+          await database.insert('cache_meta', <String, Object?>{
+            'key': 'offline_schema_version',
+            'value': '7',
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        if (oldVersion < 8) {
+          await database.execute(
+            'ALTER TABLE cached_tasks ADD COLUMN department_id TEXT',
+          );
+          await database.execute(
+            'CREATE INDEX idx_cached_tasks_department ON cached_tasks(department_id)',
+          );
+          await database.execute('''
+            CREATE TABLE cached_departments (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              member_count INTEGER NOT NULL DEFAULT 0,
+              cached_at TEXT NOT NULL
+            )
+          ''');
+
+          final taskRows = await database.query(
+            'cached_tasks',
+            columns: <String>['id', 'payload_json'],
+          );
+          for (final row in taskRows) {
+            try {
+              final payload = Map<String, dynamic>.from(
+                jsonDecode(row['payload_json'] as String) as Map,
+              );
+              final department = payload['department'];
+              final departmentId = department is Map
+                  ? department['id']?.toString()
+                  : null;
+              if (departmentId != null && departmentId.isNotEmpty) {
+                await database.update(
+                  'cached_tasks',
+                  <String, Object?>{'department_id': departmentId},
+                  where: 'id = ?',
+                  whereArgs: <Object?>[row['id']],
+                );
+              }
+            } catch (_) {
+              // Los datos antiguos dañados no deben impedir la actualización.
+            }
+          }
+          await database.insert('cache_meta', <String, Object?>{
+            'key': 'offline_schema_version',
+            'value': '8',
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
       },
     );
   }
@@ -118,6 +176,17 @@ class LocalDatabase {
         is_admin INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT,
+        department_ids_json TEXT NOT NULL DEFAULT '[]',
+        cached_at TEXT NOT NULL
+      )
+    ''');
+
+    await database.execute('''
+      CREATE TABLE cached_departments (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        member_count INTEGER NOT NULL DEFAULT 0,
         cached_at TEXT NOT NULL
       )
     ''');
@@ -126,6 +195,7 @@ class LocalDatabase {
       CREATE TABLE cached_tasks (
         id TEXT PRIMARY KEY,
         status TEXT NOT NULL,
+        department_id TEXT,
         payload_json TEXT NOT NULL,
         sort_order INTEGER NOT NULL DEFAULT 0,
         cached_at TEXT NOT NULL,
@@ -140,6 +210,10 @@ class LocalDatabase {
     await database.execute('''
       CREATE INDEX idx_cached_tasks_status
       ON cached_tasks(status)
+    ''');
+    await database.execute('''
+      CREATE INDEX idx_cached_tasks_department
+      ON cached_tasks(department_id)
     ''');
 
     await database.execute('''
@@ -174,7 +248,7 @@ class LocalDatabase {
     );
     await database.insert('cache_meta', <String, Object?>{
       'key': 'offline_schema_version',
-      'value': '6',
+      'value': '8',
     });
   }
 

@@ -6,11 +6,15 @@ import 'package:flutter/material.dart';
 import '../core/task_permissions.dart';
 import '../data/repositories/task_repository.dart';
 import '../models/app_user.dart';
+import '../models/department.dart';
 import '../models/task_item.dart';
 import '../services/background_sync.dart';
+import '../services/notification_service.dart';
 import '../services/realtime_service.dart';
 import '../services/session_store.dart';
 import '../services/sync_trigger_service.dart';
+import 'department_management_screen.dart';
+import 'notification_validation_screen.dart';
 import 'report_screen.dart';
 import 'task_detail_screen.dart';
 import 'user_management_screen.dart';
@@ -32,6 +36,7 @@ class _TaskListScreenState extends State<TaskListScreen>
 
   List<TaskItem> _tasks = <TaskItem>[];
   List<AppUser> _users = <AppUser>[];
+  List<DepartmentSummary> _departments = <DepartmentSummary>[];
   bool _loading = true;
   bool _syncRunning = false;
   bool _realtimeConnected = false;
@@ -39,13 +44,50 @@ class _TaskListScreenState extends State<TaskListScreen>
   bool _usingCachedData = false;
   String? _error;
   String _filter = 'TODAS';
+  String? _selectedDepartmentId;
   DateTime? _lastSyncAt;
   int _pendingOperations = 0;
 
   String? get _statusFilter => _filter == 'TODAS' ? null : _filter;
 
   bool get _hasCachedContent {
-    return _tasks.isNotEmpty || _users.isNotEmpty || _lastSyncAt != null;
+    return _tasks.isNotEmpty ||
+        _users.isNotEmpty ||
+        _departments.isNotEmpty ||
+        _lastSyncAt != null;
+  }
+
+  List<DepartmentSummary> get _activeDepartments => _departments
+      .where((department) => department.isActive)
+      .toList(growable: false);
+
+  void _normalizeDepartmentSelection() {
+    final active = _activeDepartments;
+    if (_selectedDepartmentId != null &&
+        active.any((department) => department.id == _selectedDepartmentId)) {
+      return;
+    }
+    _selectedDepartmentId = active.length == 1 ? active.first.id : null;
+  }
+
+  DepartmentSummary? _departmentById(String? id) {
+    if (id == null) {
+      return null;
+    }
+    for (final department in _departments) {
+      if (department.id == id) {
+        return department;
+      }
+    }
+    return null;
+  }
+
+  List<AppUser> _usersForDepartment(String departmentId) {
+    return _users
+        .where(
+          (user) => user.isActive && user.departmentIds.contains(departmentId),
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -106,7 +148,10 @@ class _TaskListScreenState extends State<TaskListScreen>
 
     var cacheHasContent = false;
     try {
-      final cached = await _repository.loadCached(status: _statusFilter);
+      final cached = await _repository.loadCached(
+        status: _statusFilter,
+        departmentId: _selectedDepartmentId,
+      );
       cacheHasContent = cached.hasContent;
       if (mounted && cacheHasContent) {
         _applyDashboardData(cached, cachedData: true);
@@ -121,7 +166,10 @@ class _TaskListScreenState extends State<TaskListScreen>
 
   Future<void> _loadCachedForCurrentFilter() async {
     try {
-      final cached = await _repository.loadCached(status: _statusFilter);
+      final cached = await _repository.loadCached(
+        status: _statusFilter,
+        departmentId: _selectedDepartmentId,
+      );
       if (!mounted) {
         return;
       }
@@ -136,6 +184,8 @@ class _TaskListScreenState extends State<TaskListScreen>
     setState(() {
       _tasks = data.tasks;
       _users = data.users;
+      _departments = data.departments;
+      _normalizeDepartmentSelection();
       _lastSyncAt = data.lastSyncAt;
       _pendingOperations = data.pendingOperations;
       _usingCachedData = cachedData;
@@ -165,14 +215,23 @@ class _TaskListScreenState extends State<TaskListScreen>
         return;
       }
 
-      final data = await _repository.refreshFromServer(status: _statusFilter);
+      await widget.session.refreshCurrentUser();
+      final data = await _repository.refreshFromServer(
+        status: _statusFilter,
+        departmentId: _selectedDepartmentId,
+      );
       await widget.session.markServerAvailable();
+      unawaited(
+        NotificationService.instance.registerCurrentDevice().then<void>((_) {}),
+      );
       if (!mounted) {
         return;
       }
       setState(() {
         _tasks = data.tasks;
         _users = data.users;
+        _departments = data.departments;
+        _normalizeDepartmentSelection();
         _lastSyncAt = data.lastSyncAt;
         _pendingOperations = data.pendingOperations;
         _offlineMode = false;
@@ -228,7 +287,9 @@ class _TaskListScreenState extends State<TaskListScreen>
   }
 
   Future<void> _returnToLogin() async {
+    await NotificationService.instance.unregisterCurrentDevice();
     await widget.session.logout();
+    NotificationService.instance.detachApiClient();
     if (!mounted) {
       return;
     }
@@ -265,10 +326,26 @@ class _TaskListScreenState extends State<TaskListScreen>
   }
 
   Future<void> _showCreateDialog() async {
+    final activeDepartments = _activeDepartments;
+    if (activeDepartments.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay departamentos activos disponibles.'),
+        ),
+      );
+      return;
+    }
+
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
     String priority = 'MEDIA';
-    String? assignedToId;
+    String selectedDepartmentId = _selectedDepartmentId != null &&
+            activeDepartments.any(
+              (department) => department.id == _selectedDepartmentId,
+            )
+        ? _selectedDepartmentId!
+        : activeDepartments.first.id;
+    final selectedAssigneeIds = <String>{};
     bool saving = false;
     String? dialogError;
 
@@ -278,9 +355,19 @@ class _TaskListScreenState extends State<TaskListScreen>
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final departmentUsers = _usersForDepartment(selectedDepartmentId);
+
             Future<void> save() async {
               if (titleController.text.trim().length < 2) {
                 setDialogState(() => dialogError = 'Ingrese un titulo valido.');
+                return;
+              }
+
+              final department = _departmentById(selectedDepartmentId);
+              if (department == null || !department.isActive) {
+                setDialogState(
+                  () => dialogError = 'Seleccione un departamento valido.',
+                );
                 return;
               }
 
@@ -290,19 +377,16 @@ class _TaskListScreenState extends State<TaskListScreen>
               });
 
               try {
-                AppUser? assignedTo;
-                for (final user in _users) {
-                  if (user.id == assignedToId) {
-                    assignedTo = user;
-                    break;
-                  }
-                }
+                final assignees = departmentUsers
+                    .where((user) => selectedAssigneeIds.contains(user.id))
+                    .toList(growable: false);
                 await _repository.createTask(
                   currentUser: widget.session.user!,
                   title: titleController.text,
                   description: descriptionController.text,
                   priority: priority,
-                  assignedTo: assignedTo,
+                  department: department,
+                  assignees: assignees,
                 );
                 if (dialogContext.mounted) {
                   Navigator.of(dialogContext).pop(true);
@@ -319,79 +403,133 @@ class _TaskListScreenState extends State<TaskListScreen>
 
             return AlertDialog(
               title: const Text('Nueva tarea'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    TextField(
-                      controller: titleController,
-                      enabled: !saving,
-                      decoration: const InputDecoration(
-                        labelText: 'Titulo',
-                        border: OutlineInputBorder(),
+              content: SizedBox(
+                width: 540,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedDepartmentId,
+                        decoration: const InputDecoration(
+                          labelText: 'Departamento',
+                          helperText:
+                              'Todos sus integrantes recibiran los avisos.',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: activeDepartments
+                            .map(
+                              (department) => DropdownMenuItem<String>(
+                                value: department.id,
+                                child: Text(department.name),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: saving
+                            ? null
+                            : (value) {
+                                if (value == null) {
+                                  return;
+                                }
+                                setDialogState(() {
+                                  selectedDepartmentId = value;
+                                  selectedAssigneeIds.removeWhere(
+                                    (id) => !_usersForDepartment(value)
+                                        .any((user) => user.id == id),
+                                  );
+                                });
+                              },
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: descriptionController,
-                      enabled: !saving,
-                      minLines: 3,
-                      maxLines: 5,
-                      decoration: const InputDecoration(
-                        labelText: 'Descripcion',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    DropdownButtonFormField<String>(
-                      initialValue: priority,
-                      decoration: const InputDecoration(
-                        labelText: 'Prioridad',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const <DropdownMenuItem<String>>[
-                        DropdownMenuItem(value: 'BAJA', child: Text('Baja')),
-                        DropdownMenuItem(value: 'MEDIA', child: Text('Media')),
-                        DropdownMenuItem(value: 'ALTA', child: Text('Alta')),
-                      ],
-                      onChanged: saving
-                          ? null
-                          : (value) {
-                              if (value != null) {
-                                setDialogState(() => priority = value);
-                              }
-                            },
-                    ),
-                    const SizedBox(height: 14),
-                    DropdownButtonFormField<String>(
-                      initialValue: assignedToId,
-                      decoration: const InputDecoration(
-                        labelText: 'Asignar a',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _users
-                          .map(
-                            (user) => DropdownMenuItem<String>(
-                              value: user.id,
-                              child: Text(user.name),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: saving
-                          ? null
-                          : (value) =>
-                                setDialogState(() => assignedToId = value),
-                    ),
-                    if (dialogError != null) ...<Widget>[
-                      const SizedBox(height: 12),
-                      Text(
-                        dialogError!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: titleController,
+                        enabled: !saving,
+                        maxLength: 150,
+                        decoration: const InputDecoration(
+                          labelText: 'Titulo',
+                          border: OutlineInputBorder(),
                         ),
                       ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: descriptionController,
+                        enabled: !saving,
+                        minLines: 3,
+                        maxLines: 5,
+                        maxLength: 3000,
+                        decoration: const InputDecoration(
+                          labelText: 'Descripcion',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      DropdownButtonFormField<String>(
+                        initialValue: priority,
+                        decoration: const InputDecoration(
+                          labelText: 'Prioridad',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const <DropdownMenuItem<String>>[
+                          DropdownMenuItem(value: 'BAJA', child: Text('Baja')),
+                          DropdownMenuItem(value: 'MEDIA', child: Text('Media')),
+                          DropdownMenuItem(value: 'ALTA', child: Text('Alta')),
+                        ],
+                        onChanged: saving
+                            ? null
+                            : (value) {
+                                if (value != null) {
+                                  setDialogState(() => priority = value);
+                                }
+                              },
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Responsables opcionales',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Text(
+                        'La responsabilidad no limita los avisos: todo el departamento sera notificado.',
+                      ),
+                      if (departmentUsers.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Este departamento todavia no tiene integrantes activos.',
+                          ),
+                        )
+                      else
+                        ...departmentUsers.map(
+                          (user) => CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: Text(user.name),
+                            subtitle: Text(user.email),
+                            value: selectedAssigneeIds.contains(user.id),
+                            onChanged: saving
+                                ? null
+                                : (selected) {
+                                    setDialogState(() {
+                                      if (selected == true) {
+                                        selectedAssigneeIds.add(user.id);
+                                      } else {
+                                        selectedAssigneeIds.remove(user.id);
+                                      }
+                                    });
+                                  },
+                          ),
+                        ),
+                      if (dialogError != null) ...<Widget>[
+                        const SizedBox(height: 12),
+                        Text(
+                          dialogError!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
               actions: <Widget>[
@@ -427,6 +565,12 @@ class _TaskListScreenState extends State<TaskListScreen>
     }
   }
 
+  Future<void> _changeDepartment(String? departmentId) async {
+    setState(() => _selectedDepartmentId = departmentId);
+    await _loadCachedForCurrentFilter();
+    unawaited(_synchronizeAndRefresh(showLoader: _tasks.isEmpty));
+  }
+
   Future<void> _changeFilter(String value) async {
     setState(() => _filter = value);
     await _loadCachedForCurrentFilter();
@@ -445,6 +589,7 @@ class _TaskListScreenState extends State<TaskListScreen>
           session: widget.session,
           task: task,
           users: _users,
+          departments: _activeDepartments,
         ),
       ),
     );
@@ -465,10 +610,29 @@ class _TaskListScreenState extends State<TaskListScreen>
     }
   }
 
+  Future<void> _openDepartments() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => DepartmentManagementScreen(session: widget.session),
+      ),
+    );
+    if (mounted) {
+      unawaited(_synchronizeAndRefresh(showLoader: false));
+    }
+  }
+
   Future<void> _openReports() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => ReportScreen(session: widget.session),
+      ),
+    );
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const NotificationValidationScreen(),
       ),
     );
   }
@@ -544,18 +708,20 @@ class _TaskListScreenState extends State<TaskListScreen>
                 await _openUsers();
                 return;
               }
+              if (value == 'departments') {
+                await _openDepartments();
+                return;
+              }
               if (value == 'reports') {
                 await _openReports();
                 return;
               }
+              if (value == 'notifications') {
+                await _openNotifications();
+                return;
+              }
               if (value == 'logout') {
-                await widget.session.logout();
-                if (!context.mounted) {
-                  return;
-                }
-                Navigator.of(
-                  context,
-                ).pushNamedAndRemoveUntil('/login', (route) => false);
+                await _returnToLogin();
               }
             },
             itemBuilder: (context) => <PopupMenuEntry<String>>[
@@ -573,12 +739,29 @@ class _TaskListScreenState extends State<TaskListScreen>
                     title: Text('Usuarios'),
                   ),
                 ),
+              if (widget.session.user!.isAdmin)
+                const PopupMenuItem<String>(
+                  value: 'departments',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.domain),
+                    title: Text('Departamentos'),
+                  ),
+                ),
               const PopupMenuItem<String>(
                 value: 'reports',
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.picture_as_pdf),
                   title: Text('Informe diario'),
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'notifications',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.notifications_active),
+                  title: Text('Notificaciones'),
                 ),
               ),
               const PopupMenuDivider(),
@@ -603,6 +786,30 @@ class _TaskListScreenState extends State<TaskListScreen>
         children: <Widget>[
           if (_offlineMode || _usingCachedData || _pendingOperations > 0)
             _buildConnectionBanner(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: DropdownButtonFormField<String?>(
+              initialValue: _selectedDepartmentId,
+              decoration: const InputDecoration(
+                labelText: 'Departamento actual',
+                prefixIcon: Icon(Icons.domain),
+                border: OutlineInputBorder(),
+              ),
+              items: <DropdownMenuItem<String?>>[
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Todos mis departamentos'),
+                ),
+                ..._activeDepartments.map(
+                  (department) => DropdownMenuItem<String?>(
+                    value: department.id,
+                    child: Text(department.name),
+                  ),
+                ),
+              ],
+              onChanged: _loading ? null : _changeDepartment,
+            ),
+          ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
@@ -817,8 +1024,9 @@ class _TaskCard extends StatelessWidget {
                   _Tag(label: task.status.replaceAll('_', ' ')),
                   _SyncTag(state: task.syncState),
                   Text('v${task.version}'),
+                  Text('Departamento: ${task.department.name}'),
                   Text('Creador: ${task.createdBy.name}'),
-                  Text('Asignada a: ${task.assignedTo?.name ?? 'Sin asignar'}'),
+                  Text('Responsables: ${task.assigneeLabel}'),
                   if (task.completedBy != null)
                     Text('Completada por: ${task.completedBy!.name}'),
                 ],

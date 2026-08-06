@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../../models/app_user.dart';
+import '../../models/department.dart';
 import '../../models/task_item.dart';
 import 'local_database.dart';
 
@@ -10,17 +11,22 @@ class CachedDashboardData {
   const CachedDashboardData({
     required this.tasks,
     required this.users,
+    required this.departments,
     required this.lastSyncAt,
     required this.pendingOperations,
   });
 
   final List<TaskItem> tasks;
   final List<AppUser> users;
+  final List<DepartmentSummary> departments;
   final DateTime? lastSyncAt;
   final int pendingOperations;
 
   bool get hasCachedContent {
-    return tasks.isNotEmpty || users.isNotEmpty || lastSyncAt != null;
+    return tasks.isNotEmpty ||
+        users.isNotEmpty ||
+        departments.isNotEmpty ||
+        lastSyncAt != null;
   }
 }
 
@@ -33,10 +39,14 @@ class OfflineCacheService {
 
   final LocalDatabase _localDatabase;
 
-  Future<CachedDashboardData> readDashboard({String? status}) async {
+  Future<CachedDashboardData> readDashboard({
+    String? status,
+    String? departmentId,
+  }) async {
     final results = await Future.wait<dynamic>(<Future<dynamic>>[
-      readTasks(status: status),
+      readTasks(status: status, departmentId: departmentId),
       readUsers(),
+      readDepartments(),
       readLastSyncAt(),
       countPendingOperations(),
     ]);
@@ -44,18 +54,33 @@ class OfflineCacheService {
     return CachedDashboardData(
       tasks: results[0] as List<TaskItem>,
       users: results[1] as List<AppUser>,
-      lastSyncAt: results[2] as DateTime?,
-      pendingOperations: results[3] as int,
+      departments: results[2] as List<DepartmentSummary>,
+      lastSyncAt: results[3] as DateTime?,
+      pendingOperations: results[4] as int,
     );
   }
 
-  Future<List<TaskItem>> readTasks({String? status}) async {
+  Future<List<TaskItem>> readTasks({
+    String? status,
+    String? departmentId,
+  }) async {
     final database = await _localDatabase.database;
+    final clauses = <String>[];
+    final arguments = <Object?>[];
+    if (status != null) {
+      clauses.add('status = ?');
+      arguments.add(status);
+    }
+    if (departmentId != null) {
+      clauses.add('department_id = ?');
+      arguments.add(departmentId);
+    }
+
     final rows = await database.query(
       'cached_tasks',
       columns: <String>['payload_json', 'sync_state', 'last_error'],
-      where: status == null ? null : 'status = ?',
-      whereArgs: status == null ? null : <Object?>[status],
+      where: clauses.isEmpty ? null : clauses.join(' AND '),
+      whereArgs: arguments.isEmpty ? null : arguments,
       orderBy: 'sort_order ASC, local_updated_at DESC, cached_at DESC',
     );
 
@@ -119,12 +144,33 @@ class OfflineCacheService {
             email: row['email'] as String,
             isAdmin: (row['is_admin'] as int? ?? 0) == 1,
             isActive: (row['is_active'] as int? ?? 1) == 1,
+            departmentIds: (jsonDecode(
+              row['department_ids_json'] as String? ?? '[]',
+            ) as List<dynamic>).map((item) => item.toString()).toList(),
             createdAt: row['created_at'] == null
                 ? null
                 : DateTime.tryParse(row['created_at'] as String),
           ),
         )
         .toList();
+  }
+
+  Future<List<DepartmentSummary>> readDepartments() async {
+    final database = await _localDatabase.database;
+    final rows = await database.query(
+      'cached_departments',
+      orderBy: 'is_active DESC, name COLLATE NOCASE ASC',
+    );
+    return rows
+        .map(
+          (row) => DepartmentSummary(
+            id: row['id'] as String,
+            name: row['name'] as String,
+            isActive: (row['is_active'] as int? ?? 1) == 1,
+            memberCount: row['member_count'] as int? ?? 0,
+          ),
+        )
+        .toList(growable: false);
   }
 
   Future<void> replaceServerTasksPreservingLocal(List<TaskItem> tasks) async {
@@ -176,6 +222,26 @@ class OfflineCacheService {
           'is_admin': user.isAdmin ? 1 : 0,
           'is_active': user.isActive ? 1 : 0,
           'created_at': user.createdAt?.toUtc().toIso8601String(),
+          'department_ids_json': jsonEncode(user.departmentIds),
+          'cached_at': cachedAt,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<void> replaceDepartments(List<DepartmentSummary> departments) async {
+    final database = await _localDatabase.database;
+    final cachedAt = DateTime.now().toUtc().toIso8601String();
+    await database.transaction((transaction) async {
+      await transaction.delete('cached_departments');
+      final batch = transaction.batch();
+      for (final department in departments) {
+        batch.insert('cached_departments', <String, Object?>{
+          'id': department.id,
+          'name': department.name,
+          'is_active': department.isActive ? 1 : 0,
+          'member_count': department.memberCount,
           'cached_at': cachedAt,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
@@ -275,6 +341,9 @@ class OfflineCacheService {
     return <String, Object?>{
       'id': task.id,
       'status': task.status,
+      'department_id': task.department.id == DepartmentSummary.unknown.id
+          ? null
+          : task.department.id,
       'payload_json': jsonEncode(task.toJson()),
       'sort_order': sortOrder,
       'cached_at': cachedAt ?? now,

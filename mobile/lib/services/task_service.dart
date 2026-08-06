@@ -4,6 +4,8 @@ import 'package:dio/dio.dart';
 
 import '../core/api_client.dart';
 import '../models/app_user.dart';
+import '../models/daily_report.dart';
+import '../models/department.dart';
 import '../models/sync_operation.dart';
 import '../models/task_item.dart';
 
@@ -12,12 +14,17 @@ class TaskService {
 
   final ApiClient apiClient;
 
-  Future<List<TaskItem>> listTasks({String? status}) async {
+  Future<List<TaskItem>> listTasks({
+    String? status,
+    String? departmentId,
+  }) async {
+    final query = <String, dynamic>{
+      'status': ?status,
+      'department_id': ?departmentId,
+    };
     final response = await apiClient.dio.get<List<dynamic>>(
       '/tasks',
-      queryParameters: status == null
-          ? null
-          : <String, String>{'status': status},
+      queryParameters: query.isEmpty ? null : query,
     );
     return response.data!
         .map(
@@ -33,6 +40,59 @@ class TaskService {
         .toList();
   }
 
+  Future<List<DepartmentSummary>> listDepartments() async {
+    final response = await apiClient.dio.get<List<dynamic>>('/departments');
+    return response.data!
+        .map(
+          (item) => DepartmentSummary.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList();
+  }
+
+  Future<DepartmentDetail> getDepartment(String departmentId) async {
+    final response = await apiClient.dio.get<Map<String, dynamic>>(
+      '/departments/$departmentId',
+    );
+    return DepartmentDetail.fromJson(response.data!);
+  }
+
+  Future<DepartmentDetail> createDepartment({required String name}) async {
+    final response = await apiClient.dio.post<Map<String, dynamic>>(
+      '/departments',
+      data: <String, dynamic>{'name': name.trim()},
+    );
+    return DepartmentDetail.fromJson(response.data!);
+  }
+
+  Future<DepartmentDetail> updateDepartment(
+    DepartmentSummary department, {
+    String? name,
+    bool? isActive,
+  }) async {
+    final data = <String, dynamic>{
+      'name': ?name?.trim(),
+      'is_active': ?isActive,
+    };
+    final response = await apiClient.dio.patch<Map<String, dynamic>>(
+      '/departments/${department.id}',
+      data: data,
+    );
+    return DepartmentDetail.fromJson(response.data!);
+  }
+
+  Future<DepartmentDetail> replaceDepartmentMembers(
+    String departmentId,
+    List<String> userIds,
+  ) async {
+    final response = await apiClient.dio.put<Map<String, dynamic>>(
+      '/departments/$departmentId/members',
+      data: <String, dynamic>{'user_ids': userIds},
+    );
+    return DepartmentDetail.fromJson(response.data!);
+  }
+
   Future<List<AppUser>> listManagedUsers() async {
     final response = await apiClient.dio.get<List<dynamic>>('/users/manage');
     return response.data!
@@ -45,6 +105,7 @@ class TaskService {
     required String email,
     required String password,
     required bool isAdmin,
+    List<String> departmentIds = const <String>[],
   }) async {
     final response = await apiClient.dio.post<Map<String, dynamic>>(
       '/users',
@@ -53,6 +114,7 @@ class TaskService {
         'email': email.trim().toLowerCase(),
         'password': password,
         'is_admin': isAdmin,
+        'department_ids': departmentIds,
       },
     );
     return AppUser.fromJson(response.data!);
@@ -64,6 +126,7 @@ class TaskService {
     String? password,
     bool? isAdmin,
     bool? isActive,
+    List<String>? departmentIds,
   }) async {
     final data = <String, dynamic>{};
     if (name != null) {
@@ -78,6 +141,9 @@ class TaskService {
     if (isActive != null) {
       data['is_active'] = isActive;
     }
+    if (departmentIds != null) {
+      data['department_ids'] = departmentIds;
+    }
     final response = await apiClient.dio.patch<Map<String, dynamic>>(
       '/users/${user.id}',
       data: data,
@@ -85,11 +151,56 @@ class TaskService {
     return AppUser.fromJson(response.data!);
   }
 
-  Future<Uint8List> downloadDailyReport(DateTime date) async {
+  Future<Uint8List> downloadDailyReport(
+    DateTime date, {
+    String? departmentId,
+  }) async {
     final day = date.toIso8601String().split('T').first;
     final response = await apiClient.dio.get<List<int>>(
       '/reports/daily.pdf',
-      queryParameters: <String, String>{'date': day},
+      queryParameters: <String, String>{
+        'date': day,
+        'department_id': ?departmentId,
+      },
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return Uint8List.fromList(response.data!);
+  }
+
+  Future<List<DailyReportItem>> listGeneratedReports({
+    String? departmentId,
+  }) async {
+    final response = await apiClient.dio.get<List<dynamic>>(
+      '/reports',
+      queryParameters: departmentId == null
+          ? null
+          : <String, String>{'department_id': departmentId},
+    );
+    return response.data!
+        .map(
+          (item) =>
+              DailyReportItem.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
+        .toList();
+  }
+
+  Future<DailyReportItem> generateDailyReport({
+    DateTime? date,
+    String? departmentId,
+  }) async {
+    final response = await apiClient.dio.post<Map<String, dynamic>>(
+      '/reports/generate',
+      data: <String, dynamic>{
+        'report_date': ?date?.toIso8601String().split('T').first,
+        'department_id': ?departmentId,
+      },
+    );
+    return DailyReportItem.fromJson(response.data!);
+  }
+
+  Future<Uint8List> downloadGeneratedReport(String reportId) async {
+    final response = await apiClient.dio.get<List<int>>(
+      '/reports/$reportId/download',
       options: Options(responseType: ResponseType.bytes),
     );
     return Uint8List.fromList(response.data!);

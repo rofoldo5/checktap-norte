@@ -65,3 +65,204 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+# =============================================================================
+# CheckTap - Flutter + FastAPI + PostgreSQL + Docker/Portainer + Firebase
+# Colocar este archivo en la raiz: ~/Documents/checktap/system/.gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Secretos y configuracion local
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
+
+checktap-portainer.env
+**/.env.portainer
+!**/.env.portainer.example
+
+# Credenciales privadas de Firebase / Google
+**/firebase-service-account.json
+**/firebase-service-aoccount.json
+**/*service-account*.json
+**/*service-aoccount*.json
+**/google-application-credentials*.json
+**/application-default-credentials.json
+
+# Directorios locales de secretos
+/secrets/
+/backend/secrets/
+/deploy/secrets/
+
+# Claves, certificados y firmas
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+*.keystore
+*.mobileprovision
+**/key.properties
+
+# -----------------------------------------------------------------------------
+# Python / FastAPI
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+ENV/
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.hypothesis/
+.tox/
+.nox/
+
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Bases de datos locales y archivos temporales de SQLite
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+# -----------------------------------------------------------------------------
+# Flutter / Dart
+# -----------------------------------------------------------------------------
+.dart_tool/
+.packages
+.pub/
+.pub-cache/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Salidas de compilacion
+build/
+**/build/
+
+# Android generado/local
+mobile/android/.gradle/
+mobile/android/.kotlin/
+mobile/android/local.properties
+mobile/android/captures/
+mobile/android/app/.cxx/
+mobile/android/app/intermediates/
+**/GeneratedPluginRegistrant.java
+
+# iOS/macOS generado/local
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+mobile/ios/Flutter/ephemeral/
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/ios/Runner/GeneratedPluginRegistrant.*
+mobile/macos/Pods/
+mobile/macos/.symlinks/
+mobile/macos/Flutter/ephemeral/
+
+# Windows/Linux Flutter generado
+mobile/windows/flutter/ephemeral/
+mobile/linux/flutter/ephemeral/
+
+# Mantener versionados para compilar el cliente Firebase:
+# mobile/lib/firebase_options.dart
+# mobile/android/app/google-services.json
+# mobile/ios/Runner/GoogleService-Info.plist
+
+# -----------------------------------------------------------------------------
+# Docker / Portainer / PostgreSQL
+# -----------------------------------------------------------------------------
+*.dump
+*.sql.gz
+*.dump.gz
+postgres-data/
+pgdata/
+
+# El Compose, scripts y plantillas de Portainer SI se versionan.
+# Solo se excluyen sus variables reales mediante las reglas .env anteriores.
+
+# -----------------------------------------------------------------------------
+# CheckTap: datos generados en ejecucion
+# -----------------------------------------------------------------------------
+.checktap_backups/
+**/.checktap_backups/
+backups/
+checktap-backups/
+
+validation_reports/
+**/validation_reports/
+*.log
+*.pid
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# Informes PDF generados por el scheduler
+/reports/
+/checktap_reports/
+/generated_reports/
+/storage/reports/
+/backend/reports/
+/backend/generated_reports/
+
+# Artefactos de distribucion
+*.apk
+*.aab
+*.ipa
+*.app
+*.dSYM.zip
+*.symbols
+
+# Paquetes/parches generados localmente
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.sha256
+
+# -----------------------------------------------------------------------------
+# Editores y sistema operativo
+# -----------------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+desktop.ini
+
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+*.swp
+*.swo
+*~
+
+# -----------------------------------------------------------------------------
+# Archivos locales especificos del proyecto
+# -----------------------------------------------------------------------------
+validacion_offline_*.log
+mobile/lib/screens/commandrun.txt

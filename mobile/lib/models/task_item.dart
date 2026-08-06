@@ -1,4 +1,5 @@
 import 'app_user.dart';
+import 'department.dart';
 
 const Object _unset = Object();
 
@@ -30,6 +31,8 @@ class TaskItem {
     required this.updatedAt,
     this.version = 1,
     this.description,
+    this.department = DepartmentSummary.unknown,
+    this.assignees = const <AppUser>[],
     this.assignedTo,
     this.completedBy,
     this.completedAt,
@@ -43,7 +46,9 @@ class TaskItem {
   final String status;
   final String priority;
   final int version;
+  final DepartmentSummary department;
   final AppUser createdBy;
+  final List<AppUser> assignees;
   final AppUser? assignedTo;
   final AppUser? completedBy;
   final DateTime createdAt;
@@ -58,12 +63,33 @@ class TaskItem {
         syncState == LocalSyncState.error;
   }
 
+  String get assigneeLabel {
+    if (assignees.isEmpty) {
+      return assignedTo?.name ?? 'Todo el equipo';
+    }
+    return assignees.map((user) => user.name).join(', ');
+  }
+
   factory TaskItem.fromJson(
     Map<String, dynamic> json, {
     LocalSyncState syncState = LocalSyncState.synced,
     String? syncError,
   }) {
     final createdAt = DateTime.parse(json['created_at'] as String);
+    final assignedTo = json['assigned_to'] == null
+        ? null
+        : AppUser.fromJson(
+            Map<String, dynamic>.from(json['assigned_to'] as Map),
+          );
+    final rawAssignees = json['assignees'] as List<dynamic>?;
+    final assignees =
+        rawAssignees
+            ?.map(
+              (item) =>
+                  AppUser.fromJson(Map<String, dynamic>.from(item as Map)),
+            )
+            .toList(growable: false) ??
+        <AppUser>[?assignedTo];
     return TaskItem(
       id: json['id'].toString(),
       title: json['title'] as String,
@@ -71,14 +97,16 @@ class TaskItem {
       status: json['status'] as String,
       priority: json['priority'] as String,
       version: (json['version'] as num?)?.toInt() ?? 1,
+      department: json['department'] == null
+          ? DepartmentSummary.unknown
+          : DepartmentSummary.fromJson(
+              Map<String, dynamic>.from(json['department'] as Map),
+            ),
       createdBy: AppUser.fromJson(
         Map<String, dynamic>.from(json['created_by'] as Map),
       ),
-      assignedTo: json['assigned_to'] == null
-          ? null
-          : AppUser.fromJson(
-              Map<String, dynamic>.from(json['assigned_to'] as Map),
-            ),
+      assignees: assignees,
+      assignedTo: assignedTo ?? (assignees.isEmpty ? null : assignees.first),
       completedBy: json['completed_by'] == null
           ? null
           : AppUser.fromJson(
@@ -102,7 +130,9 @@ class TaskItem {
     String? status,
     String? priority,
     int? version,
+    DepartmentSummary? department,
     AppUser? createdBy,
+    List<AppUser>? assignees,
     Object? assignedTo = _unset,
     Object? completedBy = _unset,
     DateTime? createdAt,
@@ -111,6 +141,7 @@ class TaskItem {
     LocalSyncState? syncState,
     Object? syncError = _unset,
   }) {
+    final nextAssignees = assignees ?? this.assignees;
     return TaskItem(
       id: id,
       title: title ?? this.title,
@@ -120,9 +151,11 @@ class TaskItem {
       status: status ?? this.status,
       priority: priority ?? this.priority,
       version: version ?? this.version,
+      department: department ?? this.department,
       createdBy: createdBy ?? this.createdBy,
+      assignees: nextAssignees,
       assignedTo: identical(assignedTo, _unset)
-          ? this.assignedTo
+          ? (nextAssignees.isNotEmpty ? nextAssignees.first : this.assignedTo)
           : assignedTo as AppUser?,
       completedBy: identical(completedBy, _unset)
           ? this.completedBy
@@ -147,7 +180,9 @@ class TaskItem {
       'status': status,
       'priority': priority,
       'version': version,
+      'department': department.toJson(),
       'created_by': createdBy.toJson(),
+      'assignees': assignees.map((user) => user.toJson()).toList(),
       'assigned_to': assignedTo?.toJson(),
       'completed_by': completedBy?.toJson(),
       'created_at': createdAt.toUtc().toIso8601String(),

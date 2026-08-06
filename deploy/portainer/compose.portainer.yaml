@@ -18,7 +18,9 @@ services:
       retries: 12
       start_period: 20s
     networks:
-      - checktap_backend
+      checktap_backend:
+        aliases:
+          - postgres
     security_opt:
       - no-new-privileges:true
     logging:
@@ -28,15 +30,16 @@ services:
         max-file: "5"
 
   api:
-    image: ${CHECKTAP_IMAGE:-checktap-backend}:${CHECKTAP_IMAGE_TAG:-0.7.0}
+    image: ${CHECKTAP_IMAGE:-checktap-backend}:${CHECKTAP_IMAGE_TAG:-0.9.1}
+    pull_policy: never
     container_name: checktap-api
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
+    environment: &checktap_environment
       APP_NAME: CheckTap
-      APP_VERSION: ${CHECKTAP_IMAGE_TAG:-0.7.0}
+      APP_VERSION: ${CHECKTAP_IMAGE_TAG:-0.9.1}
       ENVIRONMENT: production
       API_PREFIX: /api/v1
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -47,13 +50,27 @@ services:
       BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Administrador}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
+      DEFAULT_DEPARTMENT_NAME: ${DEFAULT_DEPARTMENT_NAME:-Programacion}
       REPORT_TIMEZONE: ${REPORT_TIMEZONE:-UTC}
+      REPORT_STORAGE_PATH: /app/reports
+      DAILY_REPORT_ENABLED: ${DAILY_REPORT_ENABLED:-true}
+      DAILY_REPORT_TIME: ${DAILY_REPORT_TIME:-17:00}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-60}
+      FIREBASE_ENABLED: ${FIREBASE_ENABLED:-true}
+      FIREBASE_ANDROID_CHANNEL_ID: ${FIREBASE_ANDROID_CHANNEL_ID:-checktap_high_importance}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-service-account.json
       UVICORN_WORKERS: "1"
       DB_STARTUP_MAX_ATTEMPTS: "60"
       DB_STARTUP_DELAY_SECONDS: "2"
       WS_PING_INTERVAL: "20"
       WS_PING_TIMEOUT: "20"
       KEEP_ALIVE_TIMEOUT: "30"
+    volumes:
+      - type: bind
+        source: /opt/checktap/secrets/firebase-service-account.json
+        target: /run/secrets/firebase-service-account.json
+        read_only: true
+      - checktap_reports:/app/reports
     ports:
       - "${API_BIND_ADDRESS:-0.0.0.0}:${API_PORT:-8080}:8000"
     healthcheck:
@@ -76,10 +93,42 @@ services:
         max-size: 10m
         max-file: "5"
 
+  scheduler:
+    image: ${CHECKTAP_IMAGE:-checktap-backend}:${CHECKTAP_IMAGE_TAG:-0.9.1}
+    pull_policy: never
+    container_name: checktap-scheduler
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["python", "-m", "app.jobs.scheduler"]
+    environment: *checktap_environment
+    volumes:
+      - type: bind
+        source: /opt/checktap/secrets/firebase-service-account.json
+        target: /run/secrets/firebase-service-account.json
+        read_only: true
+      - checktap_reports:/app/reports
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    networks:
+      - checktap_backend
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
 volumes:
   checktap_postgres_data:
     external: true
     name: checktap_postgres_data
+  checktap_reports:
+    name: checktap_reports
 
 networks:
   checktap_backend:

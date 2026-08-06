@@ -1,14 +1,27 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/task_list_screen.dart';
 import 'services/background_sync.dart';
+import 'services/notification_service.dart';
 import 'services/session_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await NotificationService.instance.initialize();
   await BackgroundSyncScheduler.initialize();
+
   final session = await SessionStore.create();
+  NotificationService.instance.attachApiClient(session.apiClient);
+  if (session.isAuthenticated) {
+    unawaited(
+      NotificationService.instance.registerCurrentDevice().then<void>((_) {}),
+    );
+  }
+
   runApp(CheckTapApp(session: session));
 }
 

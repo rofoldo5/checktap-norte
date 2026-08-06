@@ -3,6 +3,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/api_client.dart';
 import '../../models/app_user.dart';
+import '../../models/daily_report.dart';
+import '../../models/department.dart';
 import '../../models/sync_operation.dart';
 import '../../models/task_item.dart';
 import '../../services/sync_service.dart';
@@ -14,17 +16,22 @@ class DashboardData {
   const DashboardData({
     required this.tasks,
     required this.users,
+    required this.departments,
     required this.lastSyncAt,
     required this.pendingOperations,
   });
 
   final List<TaskItem> tasks;
   final List<AppUser> users;
+  final List<DepartmentSummary> departments;
   final DateTime? lastSyncAt;
   final int pendingOperations;
 
   bool get hasContent {
-    return tasks.isNotEmpty || users.isNotEmpty || lastSyncAt != null;
+    return tasks.isNotEmpty ||
+        users.isNotEmpty ||
+        departments.isNotEmpty ||
+        lastSyncAt != null;
   }
 }
 
@@ -46,26 +53,38 @@ class TaskRepository {
   final SyncQueueStore _queue;
   late final SyncService _sync;
 
-  Future<DashboardData> loadCached({String? status}) async {
-    final cached = await _cache.readDashboard(status: status);
+  Future<DashboardData> loadCached({
+    String? status,
+    String? departmentId,
+  }) async {
+    final cached = await _cache.readDashboard(
+      status: status,
+      departmentId: departmentId,
+    );
     return _dashboardFromCache(cached);
   }
 
-  Future<DashboardData> refreshFromServer({String? status}) async {
+  Future<DashboardData> refreshFromServer({
+    String? status,
+    String? departmentId,
+  }) async {
     final results = await Future.wait<dynamic>(<Future<dynamic>>[
       _remote.listTasks(),
       _remote.listUsers(),
+      _remote.listDepartments(),
     ]);
 
     final allTasks = results[0] as List<TaskItem>;
     final users = results[1] as List<AppUser>;
+    final departments = results[2] as List<DepartmentSummary>;
     final syncedAt = DateTime.now().toUtc();
 
     await _cache.replaceServerTasksPreservingLocal(allTasks);
     await _cache.replaceUsers(users);
+    await _cache.replaceDepartments(departments);
     await _cache.writeLastSyncAt(syncedAt);
 
-    return loadCached(status: status);
+    return loadCached(status: status, departmentId: departmentId);
   }
 
   Future<SyncSummary> synchronizePending() async {
@@ -77,7 +96,8 @@ class TaskRepository {
     required String title,
     required String description,
     required String priority,
-    AppUser? assignedTo,
+    required DepartmentSummary department,
+    List<AppUser> assignees = const <AppUser>[],
   }) async {
     final normalizedTitle = _validateTitle(title);
     final normalizedDescription = _normalizeDescription(description);
@@ -89,8 +109,10 @@ class TaskRepository {
       status: 'PENDIENTE',
       priority: priority,
       version: 0,
+      department: department,
       createdBy: currentUser,
-      assignedTo: assignedTo,
+      assignees: assignees,
+      assignedTo: assignees.isEmpty ? null : assignees.first,
       createdAt: now,
       updatedAt: now,
       syncState: LocalSyncState.pending,
@@ -115,13 +137,18 @@ class TaskRepository {
     required String title,
     required String description,
     required String priority,
-    AppUser? assignedTo,
+    DepartmentSummary? department,
+    List<AppUser>? assignees,
   }) async {
+    final selectedAssignees = assignees ?? task.assignees;
+    final selectedDepartment = department ?? task.department;
     final updated = task.copyWith(
       title: _validateTitle(title),
       description: _normalizeDescription(description),
       priority: priority,
-      assignedTo: assignedTo,
+      department: selectedDepartment,
+      assignees: selectedAssignees,
+      assignedTo: selectedAssignees.isEmpty ? null : selectedAssignees.first,
       updatedAt: DateTime.now().toUtc(),
       syncState: LocalSyncState.pending,
       syncError: null,
@@ -202,6 +229,33 @@ class TaskRepository {
     return updated;
   }
 
+  Future<List<DepartmentSummary>> listDepartments() {
+    return _remote.listDepartments();
+  }
+
+  Future<DepartmentDetail> getDepartment(String departmentId) {
+    return _remote.getDepartment(departmentId);
+  }
+
+  Future<DepartmentDetail> createDepartment({required String name}) {
+    return _remote.createDepartment(name: name);
+  }
+
+  Future<DepartmentDetail> updateDepartment(
+    DepartmentSummary department, {
+    String? name,
+    bool? isActive,
+  }) {
+    return _remote.updateDepartment(department, name: name, isActive: isActive);
+  }
+
+  Future<DepartmentDetail> replaceDepartmentMembers(
+    String departmentId,
+    List<String> userIds,
+  ) {
+    return _remote.replaceDepartmentMembers(departmentId, userIds);
+  }
+
   Future<List<AppUser>> listManagedUsers() => _remote.listManagedUsers();
 
   Future<AppUser> createUser({
@@ -209,12 +263,14 @@ class TaskRepository {
     required String email,
     required String password,
     required bool isAdmin,
+    required List<String> departmentIds,
   }) {
     return _remote.createUser(
       name: name,
       email: email,
       password: password,
       isAdmin: isAdmin,
+      departmentIds: departmentIds,
     );
   }
 
@@ -224,6 +280,7 @@ class TaskRepository {
     String? password,
     bool? isAdmin,
     bool? isActive,
+    List<String>? departmentIds,
   }) {
     return _remote.updateUser(
       user,
@@ -231,11 +288,27 @@ class TaskRepository {
       password: password,
       isAdmin: isAdmin,
       isActive: isActive,
+      departmentIds: departmentIds,
     );
   }
 
-  Future<Uint8List> downloadDailyReport(DateTime date) {
-    return _remote.downloadDailyReport(date);
+  Future<Uint8List> downloadDailyReport(DateTime date, {String? departmentId}) {
+    return _remote.downloadDailyReport(date, departmentId: departmentId);
+  }
+
+  Future<List<DailyReportItem>> listGeneratedReports({String? departmentId}) {
+    return _remote.listGeneratedReports(departmentId: departmentId);
+  }
+
+  Future<DailyReportItem> generateDailyReport({
+    DateTime? date,
+    String? departmentId,
+  }) {
+    return _remote.generateDailyReport(date: date, departmentId: departmentId);
+  }
+
+  Future<Uint8List> downloadGeneratedReport(String reportId) {
+    return _remote.downloadGeneratedReport(reportId);
   }
 
   Future<void> resolveConflict(String taskId) async {
@@ -284,10 +357,15 @@ class TaskRepository {
   }
 
   Map<String, dynamic> _taskEditPayload(TaskItem task) {
+    final departmentId = task.department.id == DepartmentSummary.unknown.id
+        ? null
+        : task.department.id;
     return <String, dynamic>{
       'title': task.title,
       'description': task.description,
       'priority': task.priority,
+      'department_id': departmentId,
+      'assignee_ids': task.assignees.map((user) => user.id).toList(),
       'assigned_to_id': task.assignedTo?.id,
     };
   }
@@ -296,6 +374,7 @@ class TaskRepository {
     return DashboardData(
       tasks: cached.tasks,
       users: cached.users,
+      departments: cached.departments,
       lastSyncAt: cached.lastSyncAt,
       pendingOperations: cached.pendingOperations,
     );
@@ -308,6 +387,7 @@ class TaskRepository {
     final data = await loadCached();
     debugPrint(
       '[OFFLINE] tasks=${data.tasks.length} users=${data.users.length} '
+      'departments=${data.departments.length} '
       'pending=${data.pendingOperations}',
     );
   }

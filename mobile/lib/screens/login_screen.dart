@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
+import '../services/notification_service.dart';
 import '../services/session_store.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -43,6 +46,12 @@ class _LoginScreenState extends State<LoginScreen> {
       await widget.session.login(
         _emailController.text,
         _passwordController.text,
+      );
+      NotificationService.instance.attachApiClient(widget.session.apiClient);
+      unawaited(
+        NotificationService.instance
+            .registerCurrentDevice(requestPermission: true, force: true)
+            .then<void>((_) {}),
       );
 
       if (!mounted) {

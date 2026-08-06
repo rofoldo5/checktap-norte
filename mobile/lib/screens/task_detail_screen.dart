@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/task_permissions.dart';
 import '../data/repositories/task_repository.dart';
 import '../models/app_user.dart';
+import '../models/department.dart';
 import '../models/task_item.dart';
 import '../services/background_sync.dart';
 import '../services/session_store.dart';
@@ -14,12 +15,14 @@ class TaskDetailScreen extends StatefulWidget {
     required this.session,
     required this.task,
     required this.users,
+    required this.departments,
     super.key,
   });
 
   final SessionStore session;
   final TaskItem task;
   final List<AppUser> users;
+  final List<DepartmentSummary> departments;
 
   @override
   State<TaskDetailScreen> createState() => _TaskDetailScreenState();
@@ -69,13 +72,43 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
   }
 
+  DepartmentSummary? _departmentById(String id) {
+    for (final department in widget.departments) {
+      if (department.id == id) {
+        return department;
+      }
+    }
+    if (_task.department.id == id) {
+      return _task.department;
+    }
+    return null;
+  }
+
+  List<AppUser> _usersForDepartment(String departmentId) {
+    return widget.users
+        .where(
+          (user) => user.isActive && user.departmentIds.contains(departmentId),
+        )
+        .toList(growable: false);
+  }
+
   Future<void> _edit() async {
+    final availableDepartments = <DepartmentSummary>[
+      ...widget.departments.where((department) => department.isActive),
+    ];
+    if (!availableDepartments.any(
+      (department) => department.id == _task.department.id,
+    )) {
+      availableDepartments.add(_task.department);
+    }
+
     final titleController = TextEditingController(text: _task.title);
     final descriptionController = TextEditingController(
       text: _task.description ?? '',
     );
     var priority = _task.priority;
-    var assignedToId = _task.assignedTo?.id;
+    var departmentId = _task.department.id;
+    final selectedAssigneeIds = _task.assignees.map((user) => user.id).toSet();
     String? errorMessage;
     var saving = false;
 
@@ -85,6 +118,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final departmentUsers = _usersForDepartment(departmentId);
+
             Future<void> save() async {
               final title = titleController.text.trim();
               if (title.length < 2) {
@@ -93,24 +128,28 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                 );
                 return;
               }
+              final department = _departmentById(departmentId);
+              if (department == null) {
+                setDialogState(
+                  () => errorMessage = 'Seleccione un departamento valido.',
+                );
+                return;
+              }
               setDialogState(() {
                 saving = true;
                 errorMessage = null;
               });
               try {
-                AppUser? assignedTo;
-                for (final user in widget.users) {
-                  if (user.id == assignedToId) {
-                    assignedTo = user;
-                    break;
-                  }
-                }
+                final assignees = departmentUsers
+                    .where((user) => selectedAssigneeIds.contains(user.id))
+                    .toList(growable: false);
                 final updated = await _repository.updateTask(
                   task: _task,
                   title: titleController.text,
                   description: descriptionController.text,
                   priority: priority,
-                  assignedTo: assignedTo,
+                  department: department,
+                  assignees: assignees,
                 );
                 if (!mounted || !dialogContext.mounted) {
                   return;
@@ -132,85 +171,131 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
             return AlertDialog(
               title: const Text('Editar tarea'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    TextField(
-                      controller: titleController,
-                      enabled: !saving,
-                      maxLength: 150,
-                      decoration: const InputDecoration(
-                        labelText: 'Titulo',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      enabled: !saving,
-                      minLines: 3,
-                      maxLines: 6,
-                      maxLength: 3000,
-                      decoration: const InputDecoration(
-                        labelText: 'Descripcion',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: priority,
-                      decoration: const InputDecoration(
-                        labelText: 'Prioridad',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const <DropdownMenuItem<String>>[
-                        DropdownMenuItem(value: 'BAJA', child: Text('Baja')),
-                        DropdownMenuItem(value: 'MEDIA', child: Text('Media')),
-                        DropdownMenuItem(value: 'ALTA', child: Text('Alta')),
-                      ],
-                      onChanged: saving
-                          ? null
-                          : (value) {
-                              if (value != null) {
-                                setDialogState(() => priority = value);
-                              }
-                            },
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String?>(
-                      initialValue: assignedToId,
-                      decoration: const InputDecoration(
-                        labelText: 'Asignar a',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: <DropdownMenuItem<String?>>[
-                        const DropdownMenuItem<String?>(
-                          value: null,
-                          child: Text('Sin asignar'),
+              content: SizedBox(
+                width: 540,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      DropdownButtonFormField<String>(
+                        initialValue: departmentId,
+                        decoration: const InputDecoration(
+                          labelText: 'Departamento',
+                          helperText:
+                              'El aviso llegara a todos los integrantes.',
+                          border: OutlineInputBorder(),
                         ),
-                        ...widget.users.map(
-                          (user) => DropdownMenuItem<String?>(
-                            value: user.id,
-                            child: Text(user.name),
+                        items: availableDepartments
+                            .map(
+                              (department) => DropdownMenuItem<String>(
+                                value: department.id,
+                                child: Text(department.name),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: saving
+                            ? null
+                            : (value) {
+                                if (value == null) {
+                                  return;
+                                }
+                                setDialogState(() {
+                                  departmentId = value;
+                                  selectedAssigneeIds.removeWhere(
+                                    (id) => !_usersForDepartment(value)
+                                        .any((user) => user.id == id),
+                                  );
+                                });
+                              },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: titleController,
+                        enabled: !saving,
+                        maxLength: 150,
+                        decoration: const InputDecoration(
+                          labelText: 'Titulo',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: descriptionController,
+                        enabled: !saving,
+                        minLines: 3,
+                        maxLines: 6,
+                        maxLength: 3000,
+                        decoration: const InputDecoration(
+                          labelText: 'Descripcion',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: priority,
+                        decoration: const InputDecoration(
+                          labelText: 'Prioridad',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const <DropdownMenuItem<String>>[
+                          DropdownMenuItem(value: 'BAJA', child: Text('Baja')),
+                          DropdownMenuItem(value: 'MEDIA', child: Text('Media')),
+                          DropdownMenuItem(value: 'ALTA', child: Text('Alta')),
+                        ],
+                        onChanged: saving
+                            ? null
+                            : (value) {
+                                if (value != null) {
+                                  setDialogState(() => priority = value);
+                                }
+                              },
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Responsables opcionales',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Text(
+                        'Todos los miembros del departamento reciben la notificacion aunque no sean responsables.',
+                      ),
+                      if (departmentUsers.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text('No hay integrantes activos.'),
+                        )
+                      else
+                        ...departmentUsers.map(
+                          (user) => CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: Text(user.name),
+                            subtitle: Text(user.email),
+                            value: selectedAssigneeIds.contains(user.id),
+                            onChanged: saving
+                                ? null
+                                : (selected) {
+                                    setDialogState(() {
+                                      if (selected == true) {
+                                        selectedAssigneeIds.add(user.id);
+                                      } else {
+                                        selectedAssigneeIds.remove(user.id);
+                                      }
+                                    });
+                                  },
+                          ),
+                        ),
+                      if (errorMessage != null) ...<Widget>[
+                        const SizedBox(height: 12),
+                        Text(
+                          errorMessage!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
                           ),
                         ),
                       ],
-                      onChanged: saving
-                          ? null
-                          : (value) =>
-                                setDialogState(() => assignedToId = value),
-                    ),
-                    if (errorMessage != null) ...<Widget>[
-                      const SizedBox(height: 12),
-                      Text(
-                        errorMessage!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
                     ],
-                  ],
+                  ),
                 ),
               ),
               actions: <Widget>[
@@ -298,8 +383,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             _DetailRow(label: 'Version', value: '${_task.version}'),
             _DetailRow(label: 'Creador', value: _task.createdBy.name),
             _DetailRow(
-              label: 'Asignada a',
-              value: _task.assignedTo?.name ?? 'Sin asignar',
+              label: 'Departamento',
+              value: _task.department.name,
+            ),
+            _DetailRow(
+              label: 'Responsables',
+              value: _task.assigneeLabel,
             ),
             _DetailRow(
               label: 'Completada por',

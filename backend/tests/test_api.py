@@ -281,7 +281,7 @@ def test_validation_permissions_and_user_management() -> None:
             f"/api/v1/tasks/{task_id}/reopen",
             headers=operator_two_headers,
         )
-        assert forbidden_reopen.status_code == 403
+        assert forbidden_reopen.status_code == 200, forbidden_reopen.text
 
         null_title = client.patch(
             f"/api/v1/tasks/{task_id}",

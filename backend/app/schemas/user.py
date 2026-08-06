@@ -9,6 +9,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     is_admin: bool = False
+    department_ids: list[UUID] = Field(default_factory=list, max_length=50)
 
     @field_validator("name")
     @classmethod
@@ -29,6 +30,7 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=6, max_length=128)
     is_admin: bool | None = None
     is_active: bool | None = None
+    department_ids: list[UUID] | None = Field(default=None, max_length=50)
 
     @field_validator("name")
     @classmethod
@@ -54,6 +56,7 @@ class UserSummary(BaseModel):
     email: EmailStr
     is_admin: bool = False
     is_active: bool = True
+    department_ids: list[UUID] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

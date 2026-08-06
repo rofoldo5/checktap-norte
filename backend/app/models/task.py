@@ -1,11 +1,32 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.user import User
+
+
+task_assignees = Table(
+    "task_assignees",
+    Base.metadata,
+    Column(
+        "task_id",
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "user_id",
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "assigned_at",
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        nullable=False,
+    ),
+)
 
 
 class Task(Base):
@@ -18,11 +39,18 @@ class Task(Base):
     priority: Mapped[str] = mapped_column(String(10), default="MEDIA", index=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
+    department_id: Mapped[UUID] = mapped_column(
+        ForeignKey("departments.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
     created_by_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
         index=True,
         nullable=False,
     )
+    # Campo heredado para compatibilidad con clientes 0.8.x. El primer
+    # responsable se refleja aqui; la fuente real es task_assignees.
     assigned_to_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         index=True,
@@ -52,6 +80,12 @@ class Task(Base):
         nullable=True,
     )
 
-    created_by: Mapped[User] = relationship(foreign_keys=[created_by_id])
-    assigned_to: Mapped[User | None] = relationship(foreign_keys=[assigned_to_id])
-    completed_by: Mapped[User | None] = relationship(foreign_keys=[completed_by_id])
+    department: Mapped["Department"] = relationship(lazy="joined")
+    created_by: Mapped["User"] = relationship(foreign_keys=[created_by_id])
+    assigned_to: Mapped["User | None"] = relationship(foreign_keys=[assigned_to_id])
+    assignees: Mapped[list["User"]] = relationship(
+        secondary=task_assignees,
+        lazy="selectin",
+        order_by="User.name",
+    )
+    completed_by: Mapped["User | None"] = relationship(foreign_keys=[completed_by_id])

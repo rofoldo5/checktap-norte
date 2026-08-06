@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1041349739366",
+    "project_id": "checktap-norte",
+    "storage_bucket": "checktap-norte.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1041349739366:android:8ad1dbd99e88ce1b1b3ea7",
+        "android_client_info": {
+          "package_name": "com.sistemasnorte.checktap"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAucZnGv6huLYRPIqIZ3pln-BY-RfLLEvY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

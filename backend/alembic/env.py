@@ -5,7 +5,18 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.core.database import Base
-from app.models import ProcessedOperation, Task, User  # noqa: F401
+from app.models import (  # noqa: F401
+    DailyReport,
+    Department,
+    DepartmentMember,
+    DeviceRegistration,
+    NotificationDelivery,
+    NotificationEvent,
+    ProcessedOperation,
+    Task,
+    User,
+    task_assignees,
+)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../data/repositories/task_repository.dart';
 import '../models/app_user.dart';
+import '../models/department.dart';
 import '../services/session_store.dart';
 
 class UserManagementScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class UserManagementScreen extends StatefulWidget {
 class _UserManagementScreenState extends State<UserManagementScreen> {
   late final TaskRepository _repository;
   List<AppUser> _users = <AppUser>[];
+  List<DepartmentSummary> _departments = <DepartmentSummary>[];
   bool _loading = true;
   String? _error;
 
@@ -33,11 +35,17 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       _error = null;
     });
     try {
-      final users = await _repository.listManagedUsers();
+      final results = await Future.wait<dynamic>(<Future<dynamic>>[
+        _repository.listManagedUsers(),
+        _repository.listDepartments(),
+      ]);
       if (!mounted) {
         return;
       }
-      setState(() => _users = users);
+      setState(() {
+        _users = results[0] as List<AppUser>;
+        _departments = results[1] as List<DepartmentSummary>;
+      });
     } catch (error) {
       if (mounted) {
         setState(() => _error = _message(error));
@@ -49,10 +57,36 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     }
   }
 
+  List<DepartmentSummary> get _activeDepartments => _departments
+      .where((department) => department.isActive)
+      .toList(growable: false);
+
+  String _departmentNames(Iterable<String> departmentIds) {
+    final ids = departmentIds.toSet();
+    final names = _departments
+        .where((department) => ids.contains(department.id))
+        .map((department) => department.name)
+        .toList(growable: false);
+    return names.isEmpty ? 'Sin departamento' : names.join(', ');
+  }
+
   Future<void> _showCreateDialog() async {
+    final activeDepartments = _activeDepartments;
+    if (activeDepartments.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Primero debe crear al menos un departamento activo.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final nameController = TextEditingController();
     final emailController = TextEditingController();
     final passwordController = TextEditingController();
+    final selectedDepartmentIds = <String>{activeDepartments.first.id};
     var isAdmin = false;
     var saving = false;
     String? errorMessage;
@@ -85,6 +119,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 );
                 return;
               }
+              if (selectedDepartmentIds.isEmpty) {
+                setDialogState(
+                  () => errorMessage =
+                      'Seleccione al menos un departamento.',
+                );
+                return;
+              }
               setDialogState(() {
                 saving = true;
                 errorMessage = null;
@@ -95,6 +136,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   email: email,
                   password: password,
                   isAdmin: isAdmin,
+                  departmentIds: selectedDepartmentIds.toList(growable: false),
                 );
                 if (dialogContext.mounted) {
                   Navigator.of(dialogContext).pop(true);
@@ -111,54 +153,95 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
             return AlertDialog(
               title: const Text('Nuevo usuario'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    TextField(
-                      controller: nameController,
-                      enabled: !saving,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: emailController,
-                      enabled: !saving,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Correo',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: passwordController,
-                      enabled: !saving,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Contrasena inicial',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Administrador'),
-                      value: isAdmin,
-                      onChanged: saving
-                          ? null
-                          : (value) => setDialogState(() => isAdmin = value),
-                    ),
-                    if (errorMessage != null)
-                      Text(
-                        errorMessage!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+              content: SizedBox(
+                width: 520,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      TextField(
+                        controller: nameController,
+                        enabled: !saving,
+                        decoration: const InputDecoration(
+                          labelText: 'Nombre',
+                          border: OutlineInputBorder(),
                         ),
                       ),
-                  ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: emailController,
+                        enabled: !saving,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'Correo',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: passwordController,
+                        enabled: !saving,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Contrasena inicial',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Administrador'),
+                        subtitle: const Text(
+                          'El administrador puede gestionar todos los departamentos.',
+                        ),
+                        value: isAdmin,
+                        onChanged: saving
+                            ? null
+                            : (value) =>
+                                  setDialogState(() => isAdmin = value),
+                      ),
+                      const Divider(height: 24),
+                      Text(
+                        'Departamentos',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Text(
+                        'El usuario recibira los avisos de todos los departamentos seleccionados.',
+                      ),
+                      const SizedBox(height: 6),
+                      ...activeDepartments.map(
+                        (department) => CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: Text(department.name),
+                          subtitle: Text(
+                            '${department.memberCount} integrante(s)',
+                          ),
+                          value: selectedDepartmentIds.contains(department.id),
+                          onChanged: saving
+                              ? null
+                              : (selected) {
+                                  setDialogState(() {
+                                    if (selected == true) {
+                                      selectedDepartmentIds.add(department.id);
+                                    } else {
+                                      selectedDepartmentIds.remove(
+                                        department.id,
+                                      );
+                                    }
+                                  });
+                                },
+                        ),
+                      ),
+                      if (errorMessage != null)
+                        Text(
+                          errorMessage!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
               actions: <Widget>[
@@ -193,8 +276,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   Future<void> _editUser(AppUser user) async {
+    final activeDepartments = _activeDepartments;
     final nameController = TextEditingController(text: user.name);
     final passwordController = TextEditingController();
+    final selectedDepartmentIds = user.departmentIds
+        .where((id) => activeDepartments.any((item) => item.id == id))
+        .toSet();
+    if (selectedDepartmentIds.isEmpty && activeDepartments.isNotEmpty) {
+      selectedDepartmentIds.add(activeDepartments.first.id);
+    }
     var isAdmin = user.isAdmin;
     var isActive = user.isActive;
     var saving = false;
@@ -214,6 +304,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 );
                 return;
               }
+              if (selectedDepartmentIds.isEmpty) {
+                setDialogState(
+                  () => errorMessage =
+                      'Seleccione al menos un departamento.',
+                );
+                return;
+              }
               setDialogState(() {
                 saving = true;
                 errorMessage = null;
@@ -227,6 +324,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       : passwordController.text,
                   isAdmin: isAdmin,
                   isActive: isActive,
+                  departmentIds: selectedDepartmentIds.toList(growable: false),
                 );
                 if (dialogContext.mounted) {
                   Navigator.of(dialogContext).pop(true);
@@ -243,60 +341,101 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
             return AlertDialog(
               title: Text('Editar ${user.name}'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    TextField(
-                      controller: nameController,
-                      enabled: !saving,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: passwordController,
-                      enabled: !saving,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Nueva contrasena (opcional)',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Administrador'),
-                      subtitle: isSelf
-                          ? const Text(
-                              'No puede retirarse este permiso a si mismo.',
-                            )
-                          : null,
-                      value: isAdmin,
-                      onChanged: saving || isSelf
-                          ? null
-                          : (value) => setDialogState(() => isAdmin = value),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Cuenta activa'),
-                      subtitle: isSelf
-                          ? const Text('No puede desactivar su propia cuenta.')
-                          : null,
-                      value: isActive,
-                      onChanged: saving || isSelf
-                          ? null
-                          : (value) => setDialogState(() => isActive = value),
-                    ),
-                    if (errorMessage != null)
-                      Text(
-                        errorMessage!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+              content: SizedBox(
+                width: 520,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      TextField(
+                        controller: nameController,
+                        enabled: !saving,
+                        decoration: const InputDecoration(
+                          labelText: 'Nombre',
+                          border: OutlineInputBorder(),
                         ),
                       ),
-                  ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: passwordController,
+                        enabled: !saving,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Nueva contrasena (opcional)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Administrador'),
+                        subtitle: isSelf
+                            ? const Text(
+                                'No puede retirarse este permiso a si mismo.',
+                              )
+                            : null,
+                        value: isAdmin,
+                        onChanged: saving || isSelf
+                            ? null
+                            : (value) =>
+                                  setDialogState(() => isAdmin = value),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Cuenta activa'),
+                        subtitle: isSelf
+                            ? const Text(
+                                'No puede desactivar su propia cuenta.',
+                              )
+                            : null,
+                        value: isActive,
+                        onChanged: saving || isSelf
+                            ? null
+                            : (value) =>
+                                  setDialogState(() => isActive = value),
+                      ),
+                      const Divider(height: 24),
+                      Text(
+                        'Departamentos',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Text(
+                        'Los avisos del equipo se envian segun estas membresias.',
+                      ),
+                      const SizedBox(height: 6),
+                      ...activeDepartments.map(
+                        (department) => CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: Text(department.name),
+                          subtitle: Text(
+                            '${department.memberCount} integrante(s)',
+                          ),
+                          value: selectedDepartmentIds.contains(department.id),
+                          onChanged: saving
+                              ? null
+                              : (selected) {
+                                  setDialogState(() {
+                                    if (selected == true) {
+                                      selectedDepartmentIds.add(department.id);
+                                    } else {
+                                      selectedDepartmentIds.remove(
+                                        department.id,
+                                      );
+                                    }
+                                  });
+                                },
+                        ),
+                      ),
+                      if (errorMessage != null)
+                        Text(
+                          errorMessage!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
               actions: <Widget>[
@@ -356,7 +495,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateDialog,
+        onPressed: _loading ? null : _showCreateDialog,
         icon: const Icon(Icons.person_add),
         label: const Text('Nuevo usuario'),
       ),
@@ -386,7 +525,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
                 itemCount: _users.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 8),
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   final user = _users[index];
                   return Card(
@@ -398,8 +538,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       ),
                       title: Text(user.name),
                       subtitle: Text(
-                        '${user.email}\n${user.isAdmin ? 'Administrador' : 'Usuario'} · '
-                        '${user.isActive ? 'Activo' : 'Inactivo'}',
+                        '${user.email}\n'
+                        '${user.isAdmin ? 'Administrador' : 'Usuario'} · '
+                        '${user.isActive ? 'Activo' : 'Inactivo'}\n'
+                        'Departamentos: ${_departmentNames(user.departmentIds)}',
                       ),
                       isThreeLine: true,
                       trailing: const Icon(Icons.edit),

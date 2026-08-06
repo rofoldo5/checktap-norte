@@ -1,16 +1,25 @@
 import '../models/app_user.dart';
 import '../models/task_item.dart';
 
-bool canEditTask(AppUser currentUser, TaskItem task) {
-  return currentUser.isAdmin || task.createdBy.id == currentUser.id;
+bool _isDepartmentMember(AppUser user, TaskItem task) {
+  if (user.isAdmin) {
+    return true;
+  }
+  if (user.departmentIds.isEmpty || task.department.id == 'pending-department') {
+    // Compatibilidad temporal con cache 0.8.x hasta la primera sincronizacion.
+    return task.createdBy.id == user.id || task.assignedTo?.id == user.id;
+  }
+  return user.departmentIds.contains(task.department.id);
 }
 
-bool canWorkTask(AppUser currentUser, TaskItem task) {
-  return currentUser.isAdmin ||
-      task.createdBy.id == currentUser.id ||
-      task.assignedTo?.id == currentUser.id;
+bool canEditTask(AppUser user, TaskItem task) {
+  return user.isAdmin || task.createdBy.id == user.id;
 }
 
-bool canReopenTask(AppUser currentUser, TaskItem task) {
-  return currentUser.isAdmin || task.createdBy.id == currentUser.id;
+bool canWorkTask(AppUser user, TaskItem task) {
+  return _isDepartmentMember(user, task);
+}
+
+bool canReopenTask(AppUser user, TaskItem task) {
+  return _isDepartmentMember(user, task);
 }

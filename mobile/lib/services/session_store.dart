@@ -87,6 +87,17 @@ class SessionStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> refreshCurrentUser() async {
+    if (token == null) {
+      return;
+    }
+    final refreshed = await authService.me();
+    user = refreshed;
+    offlineSession = false;
+    await _sessionStorage.writeUser(refreshed);
+    notifyListeners();
+  }
+
   Future<void> markServerAvailable() async {
     if (offlineSession) {
       offlineSession = false;
