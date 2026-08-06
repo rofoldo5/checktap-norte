@@ -1,9 +1,7 @@
-import 'dart:async';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
-import '../services/notification_service.dart';
+import '../core/form_validators.dart';
 import '../services/session_store.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -44,14 +42,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       await widget.session.login(
-        _emailController.text,
+        FormValidators.normalizeEmail(_emailController.text),
         _passwordController.text,
-      );
-      NotificationService.instance.attachApiClient(widget.session.apiClient);
-      unawaited(
-        NotificationService.instance
-            .registerCurrentDevice(requestPermission: true, force: true)
-            .then<void>((_) {}),
       );
 
       if (!mounted) {
@@ -104,6 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   padding: const EdgeInsets.all(24),
                   child: Form(
                     key: _formKey,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
@@ -129,12 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.email_outlined),
                           ),
-                          validator: (value) {
-                            if (value == null || !value.contains('@')) {
-                              return 'Ingrese un correo valido.';
-                            }
-                            return null;
-                          },
+                          validator: FormValidators.email,
                         ),
                         const SizedBox(height: 16),
                         TextFormField(
@@ -156,12 +144,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           ),
-                          validator: (value) {
-                            if (value == null || value.length < 6) {
-                              return 'La contrasena debe tener al menos 6 caracteres.';
-                            }
-                            return null;
-                          },
+                          validator: (value) => FormValidators.password(value),
                           onFieldSubmitted: (_) => _submit(),
                         ),
                         if (_error != null) ...<Widget>[

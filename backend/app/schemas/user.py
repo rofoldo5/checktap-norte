@@ -24,6 +24,13 @@ class UserCreate(BaseModel):
     def normalize_email(cls, value: EmailStr) -> str:
         return str(value).strip().lower()
 
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("La contrasena no puede contener solo espacios")
+        return value
+
 
 class UserUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=120)
@@ -41,6 +48,15 @@ class UserUpdate(BaseModel):
         if len(normalized) < 2:
             raise ValueError("Ingrese un nombre valido")
         return normalized
+
+    @field_validator("password")
+    @classmethod
+    def validate_optional_password(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("La contrasena no puede contener solo espacios")
+        return value
 
     @model_validator(mode="after")
     def reject_explicit_nulls(self):

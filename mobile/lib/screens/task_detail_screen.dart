@@ -9,6 +9,7 @@ import '../models/department.dart';
 import '../models/task_item.dart';
 import '../services/background_sync.dart';
 import '../services/session_store.dart';
+import '../widgets/task_form_dialog.dart';
 
 class TaskDetailScreen extends StatefulWidget {
   const TaskDetailScreen({
@@ -72,26 +73,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
   }
 
-  DepartmentSummary? _departmentById(String id) {
-    for (final department in widget.departments) {
-      if (department.id == id) {
-        return department;
-      }
-    }
-    if (_task.department.id == id) {
-      return _task.department;
-    }
-    return null;
-  }
-
-  List<AppUser> _usersForDepartment(String departmentId) {
-    return widget.users
-        .where(
-          (user) => user.isActive && user.departmentIds.contains(departmentId),
-        )
-        .toList(growable: false);
-  }
-
   Future<void> _edit() async {
     final availableDepartments = <DepartmentSummary>[
       ...widget.departments.where((department) => department.isActive),
@@ -102,228 +83,39 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       availableDepartments.add(_task.department);
     }
 
-    final titleController = TextEditingController(text: _task.title);
-    final descriptionController = TextEditingController(
-      text: _task.description ?? '',
-    );
-    var priority = _task.priority;
-    var departmentId = _task.department.id;
-    final selectedAssigneeIds = _task.assignees.map((user) => user.id).toSet();
-    String? errorMessage;
-    var saving = false;
-
+    TaskItem? updatedTask;
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final departmentUsers = _usersForDepartment(departmentId);
-
-            Future<void> save() async {
-              final title = titleController.text.trim();
-              if (title.length < 2) {
-                setDialogState(
-                  () => errorMessage = 'Ingrese un titulo valido.',
-                );
-                return;
-              }
-              final department = _departmentById(departmentId);
-              if (department == null) {
-                setDialogState(
-                  () => errorMessage = 'Seleccione un departamento valido.',
-                );
-                return;
-              }
-              setDialogState(() {
-                saving = true;
-                errorMessage = null;
-              });
-              try {
-                final assignees = departmentUsers
-                    .where((user) => selectedAssigneeIds.contains(user.id))
-                    .toList(growable: false);
-                final updated = await _repository.updateTask(
-                  task: _task,
-                  title: titleController.text,
-                  description: descriptionController.text,
-                  priority: priority,
-                  department: department,
-                  assignees: assignees,
-                );
-                if (!mounted || !dialogContext.mounted) {
-                  return;
-                }
-                setState(() {
-                  _task = updated;
-                  _changed = true;
-                });
-                Navigator.of(dialogContext).pop(true);
-              } catch (error) {
-                if (dialogContext.mounted) {
-                  setDialogState(() {
-                    saving = false;
-                    errorMessage = _friendlyError(error);
-                  });
-                }
-              }
-            }
-
-            return AlertDialog(
-              title: const Text('Editar tarea'),
-              content: SizedBox(
-                width: 540,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      DropdownButtonFormField<String>(
-                        initialValue: departmentId,
-                        decoration: const InputDecoration(
-                          labelText: 'Departamento',
-                          helperText:
-                              'El aviso llegara a todos los integrantes.',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: availableDepartments
-                            .map(
-                              (department) => DropdownMenuItem<String>(
-                                value: department.id,
-                                child: Text(department.name),
-                              ),
-                            )
-                            .toList(growable: false),
-                        onChanged: saving
-                            ? null
-                            : (value) {
-                                if (value == null) {
-                                  return;
-                                }
-                                setDialogState(() {
-                                  departmentId = value;
-                                  selectedAssigneeIds.removeWhere(
-                                    (id) => !_usersForDepartment(value)
-                                        .any((user) => user.id == id),
-                                  );
-                                });
-                              },
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: titleController,
-                        enabled: !saving,
-                        maxLength: 150,
-                        decoration: const InputDecoration(
-                          labelText: 'Titulo',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: descriptionController,
-                        enabled: !saving,
-                        minLines: 3,
-                        maxLines: 6,
-                        maxLength: 3000,
-                        decoration: const InputDecoration(
-                          labelText: 'Descripcion',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: priority,
-                        decoration: const InputDecoration(
-                          labelText: 'Prioridad',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const <DropdownMenuItem<String>>[
-                          DropdownMenuItem(value: 'BAJA', child: Text('Baja')),
-                          DropdownMenuItem(value: 'MEDIA', child: Text('Media')),
-                          DropdownMenuItem(value: 'ALTA', child: Text('Alta')),
-                        ],
-                        onChanged: saving
-                            ? null
-                            : (value) {
-                                if (value != null) {
-                                  setDialogState(() => priority = value);
-                                }
-                              },
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'Responsables opcionales',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const Text(
-                        'Todos los miembros del departamento reciben la notificacion aunque no sean responsables.',
-                      ),
-                      if (departmentUsers.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text('No hay integrantes activos.'),
-                        )
-                      else
-                        ...departmentUsers.map(
-                          (user) => CheckboxListTile(
-                            contentPadding: EdgeInsets.zero,
-                            controlAffinity: ListTileControlAffinity.leading,
-                            title: Text(user.name),
-                            subtitle: Text(user.email),
-                            value: selectedAssigneeIds.contains(user.id),
-                            onChanged: saving
-                                ? null
-                                : (selected) {
-                                    setDialogState(() {
-                                      if (selected == true) {
-                                        selectedAssigneeIds.add(user.id);
-                                      } else {
-                                        selectedAssigneeIds.remove(user.id);
-                                      }
-                                    });
-                                  },
-                          ),
-                        ),
-                      if (errorMessage != null) ...<Widget>[
-                        const SizedBox(height: 12),
-                        Text(
-                          errorMessage!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: saving
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: saving ? null : save,
-                  child: saving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Guardar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => TaskFormDialog(
+        dialogTitle: 'Editar tarea',
+        submitLabel: 'Guardar',
+        departments: availableDepartments,
+        users: widget.users,
+        initialDepartmentId: _task.department.id,
+        initialTitle: _task.title,
+        initialDescription: _task.description ?? '',
+        initialPriority: _task.priority,
+        initialAssigneeIds: _task.assignees.map((user) => user.id).toSet(),
+        errorMessage: _friendlyError,
+        onSubmit: (value) async {
+          updatedTask = await _repository.updateTask(
+            task: _task,
+            title: value.title,
+            description: value.description,
+            priority: value.priority,
+            department: value.department,
+            assignees: value.assignees,
+          );
+        },
+      ),
     );
 
-    titleController.dispose();
-    descriptionController.dispose();
-    if (saved == true) {
+    if (saved == true && updatedTask != null && mounted) {
+      setState(() {
+        _task = updatedTask!;
+        _changed = true;
+      });
       await BackgroundSyncScheduler.scheduleOneOff();
       unawaited(_repository.synchronizePending());
     }
@@ -382,14 +174,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             _DetailRow(label: 'Prioridad', value: _task.priority),
             _DetailRow(label: 'Version', value: '${_task.version}'),
             _DetailRow(label: 'Creador', value: _task.createdBy.name),
-            _DetailRow(
-              label: 'Departamento',
-              value: _task.department.name,
-            ),
-            _DetailRow(
-              label: 'Responsables',
-              value: _task.assigneeLabel,
-            ),
+            _DetailRow(label: 'Departamento', value: _task.department.name),
+            _DetailRow(label: 'Responsables', value: _task.assigneeLabel),
             _DetailRow(
               label: 'Completada por',
               value: _task.completedBy?.name ?? 'No completada',

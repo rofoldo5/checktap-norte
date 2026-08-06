@@ -5,6 +5,7 @@ import '../data/repositories/task_repository.dart';
 import '../models/app_user.dart';
 import '../models/department.dart';
 import '../services/session_store.dart';
+import '../widgets/user_form_dialog.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({required this.session, super.key});
@@ -75,395 +76,71 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     if (activeDepartments.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Primero debe crear al menos un departamento activo.',
-          ),
+          content: Text('Primero debe crear al menos un departamento activo.'),
         ),
       );
       return;
     }
 
-    final nameController = TextEditingController();
-    final emailController = TextEditingController();
-    final passwordController = TextEditingController();
-    final selectedDepartmentIds = <String>{activeDepartments.first.id};
-    var isAdmin = false;
-    var saving = false;
-    String? errorMessage;
-
     final created = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> save() async {
-              final name = nameController.text.trim();
-              final email = emailController.text.trim();
-              final password = passwordController.text;
-              if (name.length < 2) {
-                setDialogState(
-                  () => errorMessage = 'Ingrese un nombre valido.',
-                );
-                return;
-              }
-              if (!email.contains('@')) {
-                setDialogState(
-                  () => errorMessage = 'Ingrese un correo valido.',
-                );
-                return;
-              }
-              if (password.length < 6) {
-                setDialogState(
-                  () => errorMessage = 'La contrasena debe tener 6 caracteres.',
-                );
-                return;
-              }
-              if (selectedDepartmentIds.isEmpty) {
-                setDialogState(
-                  () => errorMessage =
-                      'Seleccione al menos un departamento.',
-                );
-                return;
-              }
-              setDialogState(() {
-                saving = true;
-                errorMessage = null;
-              });
-              try {
-                await _repository.createUser(
-                  name: name,
-                  email: email,
-                  password: password,
-                  isAdmin: isAdmin,
-                  departmentIds: selectedDepartmentIds.toList(growable: false),
-                );
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop(true);
-                }
-              } catch (error) {
-                if (dialogContext.mounted) {
-                  setDialogState(() {
-                    saving = false;
-                    errorMessage = _message(error);
-                  });
-                }
-              }
-            }
-
-            return AlertDialog(
-              title: const Text('Nuevo usuario'),
-              content: SizedBox(
-                width: 520,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      TextField(
-                        controller: nameController,
-                        enabled: !saving,
-                        decoration: const InputDecoration(
-                          labelText: 'Nombre',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: emailController,
-                        enabled: !saving,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          labelText: 'Correo',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: passwordController,
-                        enabled: !saving,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Contrasena inicial',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Administrador'),
-                        subtitle: const Text(
-                          'El administrador puede gestionar todos los departamentos.',
-                        ),
-                        value: isAdmin,
-                        onChanged: saving
-                            ? null
-                            : (value) =>
-                                  setDialogState(() => isAdmin = value),
-                      ),
-                      const Divider(height: 24),
-                      Text(
-                        'Departamentos',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const Text(
-                        'El usuario recibira los avisos de todos los departamentos seleccionados.',
-                      ),
-                      const SizedBox(height: 6),
-                      ...activeDepartments.map(
-                        (department) => CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          title: Text(department.name),
-                          subtitle: Text(
-                            '${department.memberCount} integrante(s)',
-                          ),
-                          value: selectedDepartmentIds.contains(department.id),
-                          onChanged: saving
-                              ? null
-                              : (selected) {
-                                  setDialogState(() {
-                                    if (selected == true) {
-                                      selectedDepartmentIds.add(department.id);
-                                    } else {
-                                      selectedDepartmentIds.remove(
-                                        department.id,
-                                      );
-                                    }
-                                  });
-                                },
-                        ),
-                      ),
-                      if (errorMessage != null)
-                        Text(
-                          errorMessage!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: saving
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: saving ? null : save,
-                  child: saving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Crear'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => UserFormDialog(
+        departments: activeDepartments,
+        currentUserId: widget.session.user?.id,
+        errorMessage: _message,
+        onSubmit: (value) async {
+          await _repository.createUser(
+            name: value.name,
+            email: value.email!,
+            password: value.password!,
+            isAdmin: value.isAdmin,
+            departmentIds: value.departmentIds,
+          );
+        },
+      ),
     );
 
-    nameController.dispose();
-    emailController.dispose();
-    passwordController.dispose();
-    if (created == true) {
+    if (created == true && mounted) {
       await _load();
     }
   }
 
   Future<void> _editUser(AppUser user) async {
     final activeDepartments = _activeDepartments;
-    final nameController = TextEditingController(text: user.name);
-    final passwordController = TextEditingController();
-    final selectedDepartmentIds = user.departmentIds
-        .where((id) => activeDepartments.any((item) => item.id == id))
-        .toSet();
-    if (selectedDepartmentIds.isEmpty && activeDepartments.isNotEmpty) {
-      selectedDepartmentIds.add(activeDepartments.first.id);
+    if (activeDepartments.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Debe existir al menos un departamento activo para editar membresías.',
+          ),
+        ),
+      );
+      return;
     }
-    var isAdmin = user.isAdmin;
-    var isActive = user.isActive;
-    var saving = false;
-    String? errorMessage;
-    final isSelf = user.id == widget.session.user!.id;
 
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> save() async {
-              if (nameController.text.trim().length < 2) {
-                setDialogState(
-                  () => errorMessage = 'Ingrese un nombre valido.',
-                );
-                return;
-              }
-              if (selectedDepartmentIds.isEmpty) {
-                setDialogState(
-                  () => errorMessage =
-                      'Seleccione al menos un departamento.',
-                );
-                return;
-              }
-              setDialogState(() {
-                saving = true;
-                errorMessage = null;
-              });
-              try {
-                await _repository.updateUser(
-                  user,
-                  name: nameController.text,
-                  password: passwordController.text.isEmpty
-                      ? null
-                      : passwordController.text,
-                  isAdmin: isAdmin,
-                  isActive: isActive,
-                  departmentIds: selectedDepartmentIds.toList(growable: false),
-                );
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop(true);
-                }
-              } catch (error) {
-                if (dialogContext.mounted) {
-                  setDialogState(() {
-                    saving = false;
-                    errorMessage = _message(error);
-                  });
-                }
-              }
-            }
-
-            return AlertDialog(
-              title: Text('Editar ${user.name}'),
-              content: SizedBox(
-                width: 520,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      TextField(
-                        controller: nameController,
-                        enabled: !saving,
-                        decoration: const InputDecoration(
-                          labelText: 'Nombre',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: passwordController,
-                        enabled: !saving,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Nueva contrasena (opcional)',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Administrador'),
-                        subtitle: isSelf
-                            ? const Text(
-                                'No puede retirarse este permiso a si mismo.',
-                              )
-                            : null,
-                        value: isAdmin,
-                        onChanged: saving || isSelf
-                            ? null
-                            : (value) =>
-                                  setDialogState(() => isAdmin = value),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Cuenta activa'),
-                        subtitle: isSelf
-                            ? const Text(
-                                'No puede desactivar su propia cuenta.',
-                              )
-                            : null,
-                        value: isActive,
-                        onChanged: saving || isSelf
-                            ? null
-                            : (value) =>
-                                  setDialogState(() => isActive = value),
-                      ),
-                      const Divider(height: 24),
-                      Text(
-                        'Departamentos',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const Text(
-                        'Los avisos del equipo se envian segun estas membresias.',
-                      ),
-                      const SizedBox(height: 6),
-                      ...activeDepartments.map(
-                        (department) => CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          title: Text(department.name),
-                          subtitle: Text(
-                            '${department.memberCount} integrante(s)',
-                          ),
-                          value: selectedDepartmentIds.contains(department.id),
-                          onChanged: saving
-                              ? null
-                              : (selected) {
-                                  setDialogState(() {
-                                    if (selected == true) {
-                                      selectedDepartmentIds.add(department.id);
-                                    } else {
-                                      selectedDepartmentIds.remove(
-                                        department.id,
-                                      );
-                                    }
-                                  });
-                                },
-                        ),
-                      ),
-                      if (errorMessage != null)
-                        Text(
-                          errorMessage!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: saving
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: saving ? null : save,
-                  child: saving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Guardar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => UserFormDialog(
+        departments: activeDepartments,
+        user: user,
+        currentUserId: widget.session.user?.id,
+        errorMessage: _message,
+        onSubmit: (value) async {
+          await _repository.updateUser(
+            user,
+            name: value.name,
+            password: value.password,
+            isAdmin: value.isAdmin,
+            isActive: value.isActive,
+            departmentIds: value.departmentIds,
+          );
+        },
+      ),
     );
 
-    nameController.dispose();
-    passwordController.dispose();
-    if (saved == true) {
+    if (saved == true && mounted) {
       await _load();
     }
   }
@@ -525,8 +202,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
                 itemCount: _users.length,
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 8),
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   final user = _users[index];
                   return Card(

@@ -71,6 +71,26 @@ class _TaskListScreenState extends State<TaskListScreen>
     _selectedDepartmentId = active.length == 1 ? active.first.id : null;
   }
 
+  DepartmentSummary? _departmentById(String? id) {
+    if (id == null) {
+      return null;
+    }
+    for (final department in _departments) {
+      if (department.id == id) {
+        return department;
+      }
+    }
+    return null;
+  }
+
+  List<AppUser> _usersForDepartment(String departmentId) {
+    return _users
+        .where(
+          (user) => user.isActive && user.departmentIds.contains(departmentId),
+        )
+        .toList(growable: false);
+  }
+
   @override
   void initState() {
     super.initState();

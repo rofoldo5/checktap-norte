@@ -5,6 +5,7 @@ import '../data/repositories/task_repository.dart';
 import '../models/app_user.dart';
 import '../models/department.dart';
 import '../services/session_store.dart';
+import '../widgets/department_form_dialog.dart';
 
 class DepartmentManagementScreen extends StatefulWidget {
   const DepartmentManagementScreen({required this.session, super.key});
@@ -60,92 +61,20 @@ class _DepartmentManagementScreenState
   }
 
   Future<void> _createDepartment() async {
-    final controller = TextEditingController();
-    var saving = false;
-    String? errorMessage;
-
     final created = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> save() async {
-              final name = controller.text.trim();
-              if (name.length < 2) {
-                setDialogState(
-                  () => errorMessage = 'Ingrese un nombre valido.',
-                );
-                return;
-              }
-              setDialogState(() {
-                saving = true;
-                errorMessage = null;
-              });
-              try {
-                await _repository.createDepartment(name: name);
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop(true);
-                }
-              } catch (error) {
-                if (dialogContext.mounted) {
-                  setDialogState(() {
-                    saving = false;
-                    errorMessage = _message(error);
-                  });
-                }
-              }
-            }
-
-            return AlertDialog(
-              title: const Text('Nuevo departamento'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  TextField(
-                    controller: controller,
-                    enabled: !saving,
-                    autofocus: true,
-                    maxLength: 120,
-                    decoration: const InputDecoration(
-                      labelText: 'Nombre del departamento',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  if (errorMessage != null)
-                    Text(
-                      errorMessage!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                ],
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: saving
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: saving ? null : save,
-                  child: saving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Crear'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => DepartmentFormDialog(
+        title: 'Nuevo departamento',
+        submitLabel: 'Crear',
+        errorMessage: _message,
+        onSubmit: (value) async {
+          await _repository.createDepartment(name: value.name);
+        },
+      ),
     );
 
-    controller.dispose();
-    if (created == true) {
+    if (created == true && mounted) {
       await _load();
     }
   }
@@ -156,9 +85,9 @@ class _DepartmentManagementScreenState
       detail = await _repository.getDepartment(department.id);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_message(error))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_message(error))));
       }
       return;
     }
@@ -167,156 +96,33 @@ class _DepartmentManagementScreenState
       return;
     }
 
-    final nameController = TextEditingController(text: detail.name);
-    var isActive = detail.isActive;
-    final selectedUserIds = detail.members.map((user) => user.id).toSet();
-    var saving = false;
-    String? errorMessage;
-
     final saved = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> save() async {
-              final name = nameController.text.trim();
-              if (name.length < 2) {
-                setDialogState(
-                  () => errorMessage = 'Ingrese un nombre valido.',
-                );
-                return;
-              }
-              setDialogState(() {
-                saving = true;
-                errorMessage = null;
-              });
-              try {
-                final updated = await _repository.updateDepartment(
-                  department,
-                  name: name,
-                  isActive: isActive,
-                );
-                await _repository.replaceDepartmentMembers(
-                  updated.id,
-                  selectedUserIds.toList(growable: false),
-                );
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop(true);
-                }
-              } catch (error) {
-                if (dialogContext.mounted) {
-                  setDialogState(() {
-                    saving = false;
-                    errorMessage = _message(error);
-                  });
-                }
-              }
-            }
-
-            return AlertDialog(
-              title: Text('Editar ${detail.name}'),
-              content: SizedBox(
-                width: 520,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      TextField(
-                        controller: nameController,
-                        enabled: !saving,
-                        maxLength: 120,
-                        decoration: const InputDecoration(
-                          labelText: 'Nombre',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Departamento activo'),
-                        subtitle: const Text(
-                          'Los departamentos inactivos no pueden recibir tareas nuevas.',
-                        ),
-                        value: isActive,
-                        onChanged: saving
-                            ? null
-                            : (value) =>
-                                  setDialogState(() => isActive = value),
-                      ),
-                      const Divider(height: 28),
-                      Text(
-                        'Integrantes',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Todos los integrantes activos reciben los avisos de las tareas del departamento.',
-                      ),
-                      const SizedBox(height: 8),
-                      if (_users.isEmpty)
-                        const Text('No hay usuarios disponibles.')
-                      else
-                        ..._users.map(
-                          (user) => CheckboxListTile(
-                            contentPadding: EdgeInsets.zero,
-                            controlAffinity: ListTileControlAffinity.leading,
-                            title: Text(user.name),
-                            subtitle: Text(
-                              '${user.email} · ${user.isActive ? 'Activo' : 'Inactivo'}',
-                            ),
-                            value: selectedUserIds.contains(user.id),
-                            onChanged: saving || !user.isActive
-                                ? null
-                                : (selected) {
-                                    setDialogState(() {
-                                      if (selected == true) {
-                                        selectedUserIds.add(user.id);
-                                      } else {
-                                        selectedUserIds.remove(user.id);
-                                      }
-                                    });
-                                  },
-                          ),
-                        ),
-                      if (errorMessage != null) ...<Widget>[
-                        const SizedBox(height: 8),
-                        Text(
-                          errorMessage!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: saving
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: saving ? null : save,
-                  child: saving
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Guardar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => DepartmentFormDialog(
+        title: 'Editar ${detail.name}',
+        submitLabel: 'Guardar',
+        initialName: detail.name,
+        initialIsActive: detail.isActive,
+        users: _users,
+        initialMemberIds: detail.members.map((user) => user.id).toSet(),
+        showMembers: true,
+        errorMessage: _message,
+        onSubmit: (value) async {
+          final updated = await _repository.updateDepartment(
+            department,
+            name: value.name,
+            isActive: value.isActive,
+          );
+          await _repository.replaceDepartmentMembers(
+            updated.id,
+            value.memberIds,
+          );
+        },
+      ),
     );
 
-    nameController.dispose();
-    if (saved == true) {
+    if (saved == true && mounted) {
       await _load();
     }
   }
@@ -378,17 +184,14 @@ class _DepartmentManagementScreenState
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
                 itemCount: _departments.length,
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 8),
+                separatorBuilder: (context, index) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   final department = _departments[index];
                   return Card(
                     child: ListTile(
                       leading: CircleAvatar(
                         child: Icon(
-                          department.isActive
-                              ? Icons.groups
-                              : Icons.group_off,
+                          department.isActive ? Icons.groups : Icons.group_off,
                         ),
                       ),
                       title: Text(department.name),

@@ -27,7 +27,10 @@ class DepartmentUpdate(BaseModel):
     def normalize_optional_name(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return " ".join(value.split())
+        normalized = " ".join(value.split())
+        if len(normalized) < 2:
+            raise ValueError("Ingrese un nombre de departamento valido")
+        return normalized
 
 
 class DepartmentMembersUpdate(BaseModel):
