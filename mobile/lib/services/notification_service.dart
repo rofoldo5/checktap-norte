@@ -14,19 +14,16 @@ const AndroidNotificationChannel checkTapNotificationChannel =
     AndroidNotificationChannel(
       'checktap_high_importance',
       'Notificaciones CheckTap',
-      description: 'Avisos de actividad del equipo y reportes diarios de CheckTap.',
+      description:
+          'Avisos de actividad del equipo y reportes diarios de CheckTap.',
       importance: Importance.max,
     );
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  debugPrint(
-    '[FCM][BACKGROUND] id=${message.messageId} data=${message.data}',
-  );
+  debugPrint('[FCM][BACKGROUND] id=${message.messageId} data=${message.data}');
 }
 
 class NotificationEvent {
@@ -75,8 +72,9 @@ class NotificationService {
   final ValueNotifier<String?> token = ValueNotifier<String?>(null);
   final ValueNotifier<NotificationEvent?> lastEvent =
       ValueNotifier<NotificationEvent?>(null);
-  final ValueNotifier<String?> initializationError =
-      ValueNotifier<String?>(null);
+  final ValueNotifier<String?> initializationError = ValueNotifier<String?>(
+    null,
+  );
   final ValueNotifier<String?> backendRegistrationStatus =
       ValueNotifier<String?>(null);
 
@@ -129,15 +127,11 @@ class NotificationService {
         );
       }
 
-      FirebaseMessaging.onBackgroundMessage(
-        firebaseMessagingBackgroundHandler,
-      );
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       await FirebaseMessaging.instance.setAutoInitEnabled(true);
 
-      const androidSettings = AndroidInitializationSettings(
-        'ic_stat_checktap',
-      );
+      const androidSettings = AndroidInitializationSettings('ic_stat_checktap');
       const iosSettings = IOSInitializationSettings(
         requestAlertPermission: false,
         requestBadgePermission: false,
@@ -497,7 +491,9 @@ class NotificationService {
         await Future<void>.delayed(const Duration(milliseconds: 250));
       }
       if (apnsToken == null || apnsToken.isEmpty) {
-        debugPrint('[FCM] APNs aun no entrego token; se reintentara al renovarse.');
+        debugPrint(
+          '[FCM] APNs aun no entrego token; se reintentara al renovarse.',
+        );
         token.value = null;
         return null;
       }

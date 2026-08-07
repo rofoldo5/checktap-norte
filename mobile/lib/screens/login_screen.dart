@@ -147,9 +147,8 @@ class _LoginScreenState extends State<LoginScreen> {
               loading: _loading,
               hidePassword: _hidePassword,
               error: _error,
-              onTogglePassword: () => setState(
-                () => _hidePassword = !_hidePassword,
-              ),
+              onTogglePassword: () =>
+                  setState(() => _hidePassword = !_hidePassword),
               onSubmit: _submit,
             );
 
@@ -195,9 +194,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         Text(
                           'Organiza. Asigna. Cumple.',
                           textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                color: CheckTapColors.textMuted,
-                              ),
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(color: CheckTapColors.textMuted),
                         ),
                         const SizedBox(height: 28),
                         ConstrainedBox(
@@ -205,7 +203,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: form,
                         ),
                         const SizedBox(height: 24),
-                        _OfflineNote(offlineSession: widget.session.offlineSession),
+                        _OfflineNote(
+                          offlineSession: widget.session.offlineSession,
+                        ),
                       ],
                     ),
                   ),
@@ -263,13 +263,16 @@ class _LoginForm extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Text('Bienvenido', style: Theme.of(context).textTheme.headlineSmall),
+              Text(
+                'Bienvenido',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
               const SizedBox(height: 6),
               Text(
                 'Ingresa para continuar con tu equipo.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: CheckTapColors.textMuted,
-                    ),
+                  color: CheckTapColors.textMuted,
+                ),
               ),
               const SizedBox(height: CheckTapSpacing.xl),
               TextFormField(
@@ -277,7 +280,10 @@ class _LoginForm extends StatelessWidget {
                 enabled: !loading,
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
-                autofillHints: const <String>[AutofillHints.username, AutofillHints.email],
+                autofillHints: const <String>[
+                  AutofillHints.username,
+                  AutofillHints.email,
+                ],
                 decoration: const InputDecoration(
                   labelText: 'Correo electrónico',
                   hintText: 'usuario@empresa.com',
@@ -296,7 +302,9 @@ class _LoginForm extends StatelessWidget {
                   labelText: 'Contraseña',
                   prefixIcon: const Icon(Icons.lock_outline_rounded),
                   suffixIcon: IconButton(
-                    tooltip: hidePassword ? 'Mostrar contraseña' : 'Ocultar contraseña',
+                    tooltip: hidePassword
+                        ? 'Mostrar contraseña'
+                        : 'Ocultar contraseña',
                     onPressed: loading ? null : onTogglePassword,
                     icon: Icon(
                       hidePassword
@@ -318,9 +326,13 @@ class _LoginForm extends StatelessWidget {
                         padding: const EdgeInsets.all(CheckTapSpacing.sm),
                         decoration: BoxDecoration(
                           color: CheckTapColors.danger.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(CheckTapRadius.md),
+                          borderRadius: BorderRadius.circular(
+                            CheckTapRadius.md,
+                          ),
                           border: Border.all(
-                            color: CheckTapColors.danger.withValues(alpha: 0.18),
+                            color: CheckTapColors.danger.withValues(
+                              alpha: 0.18,
+                            ),
                           ),
                         ),
                         child: Row(
@@ -335,9 +347,8 @@ class _LoginForm extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 error!,
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: CheckTapColors.danger,
-                                    ),
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: CheckTapColors.danger),
                               ),
                             ),
                           ],
@@ -413,16 +424,25 @@ class _BrandPanel extends StatelessWidget {
           Text(
             'El trabajo de tu equipo, claro y sincronizado.',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(color: Colors.white),
           ),
           const SizedBox(height: 30),
-          const _FeaturePill(icon: Icons.groups_2_outlined, label: 'Colaboración por departamentos'),
+          const _FeaturePill(
+            icon: Icons.groups_2_outlined,
+            label: 'Colaboración por departamentos',
+          ),
           const SizedBox(height: 10),
-          const _FeaturePill(icon: Icons.cloud_off_outlined, label: 'Trabajo offline confiable'),
+          const _FeaturePill(
+            icon: Icons.cloud_off_outlined,
+            label: 'Trabajo offline confiable',
+          ),
           const SizedBox(height: 10),
-          const _FeaturePill(icon: Icons.notifications_active_outlined, label: 'Avisos y reportes al instante'),
+          const _FeaturePill(
+            icon: Icons.notifications_active_outlined,
+            label: 'Avisos y reportes al instante',
+          ),
         ],
       ),
     );
@@ -453,7 +473,9 @@ class _FeaturePill extends StatelessWidget {
           Flexible(
             child: Text(
               label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.white),
             ),
           ),
         ],
@@ -514,7 +536,9 @@ class _OfflineNote extends StatelessWidget {
         Icon(
           offlineSession ? Icons.cloud_off_rounded : Icons.shield_outlined,
           size: 17,
-          color: offlineSession ? CheckTapColors.warning : CheckTapColors.textMuted,
+          color: offlineSession
+              ? CheckTapColors.warning
+              : CheckTapColors.textMuted,
         ),
         const SizedBox(width: 7),
         Flexible(
@@ -523,9 +547,9 @@ class _OfflineNote extends StatelessWidget {
                 ? 'Sesión local activa. Los cambios se sincronizarán al volver la red.'
                 : 'Sesión segura y trabajo disponible sin conexión después del primer ingreso.',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: CheckTapColors.textMuted,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: CheckTapColors.textMuted),
           ),
         ),
       ],
