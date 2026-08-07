@@ -6,6 +6,7 @@ import '../../models/app_user.dart';
 import '../../models/daily_report.dart';
 import '../../models/department.dart';
 import '../../models/sync_operation.dart';
+import '../../models/task_checklist.dart';
 import '../../models/task_item.dart';
 import '../../services/sync_service.dart';
 import '../../services/task_service.dart';
@@ -229,6 +230,349 @@ class TaskRepository {
     return updated;
   }
 
+  Future<TaskItem> createChecklist({
+    required TaskItem task,
+    required AppUser currentUser,
+    required String title,
+    List<String> initialItemTitles = const <String>[],
+  }) async {
+    _ensureChecklistEditable(task);
+    final normalizedTitle = _validateChecklistText(
+      title,
+      maxLength: 180,
+      label: 'nombre del checklist',
+    );
+    final now = DateTime.now().toUtc();
+    final checklistId = _uuid.v4();
+    final normalizedItems = initialItemTitles
+        .map(
+          (value) =>
+              _validateChecklistText(value, maxLength: 300, label: 'actividad'),
+        )
+        .toList(growable: false);
+    final items = <TaskChecklistItem>[
+      for (var index = 0; index < normalizedItems.length; index += 1)
+        TaskChecklistItem(
+          id: _uuid.v4(),
+          title: normalizedItems[index],
+          position: index,
+          isCompleted: false,
+          version: 0,
+          createdBy: currentUser,
+          createdAt: now,
+          updatedAt: now,
+        ),
+    ];
+    final nextPosition = task.checklists.isEmpty
+        ? 0
+        : task.checklists
+                  .map((checklist) => checklist.position)
+                  .reduce((a, b) => a > b ? a : b) +
+              1;
+    final checklist = TaskChecklist(
+      id: checklistId,
+      title: normalizedTitle,
+      position: nextPosition,
+      version: 0,
+      createdBy: currentUser,
+      createdAt: now,
+      updatedAt: now,
+      items: items,
+    );
+    final updated = task.copyWith(
+      checklists: <TaskChecklist>[...task.checklists, checklist],
+      updatedAt: now,
+      syncState: LocalSyncState.pending,
+      syncError: null,
+    );
+    await _persistChecklistMutation(
+      updated,
+      'CREATE_CHECKLIST',
+      <String, dynamic>{
+        'id': checklist.id,
+        'title': checklist.title,
+        'position': checklist.position,
+        'items': checklist.items
+            .map(
+              (item) => <String, dynamic>{
+                'id': item.id,
+                'title': item.title,
+                'position': item.position,
+              },
+            )
+            .toList(growable: false),
+      },
+      baseVersion: task.version,
+    );
+    return updated;
+  }
+
+  Future<TaskItem> updateChecklistTitle({
+    required TaskItem task,
+    required String checklistId,
+    required String title,
+  }) async {
+    _ensureChecklistEditable(task);
+    final normalized = _validateChecklistText(
+      title,
+      maxLength: 180,
+      label: 'nombre del checklist',
+    );
+    final now = DateTime.now().toUtc();
+    final checklists = task.checklists
+        .map(
+          (checklist) => checklist.id == checklistId
+              ? checklist.copyWith(title: normalized, updatedAt: now)
+              : checklist,
+        )
+        .toList(growable: false);
+    final updated = task.copyWith(
+      checklists: checklists,
+      updatedAt: now,
+      syncState: LocalSyncState.pending,
+      syncError: null,
+    );
+    await _persistChecklistMutation(
+      updated,
+      'UPDATE_CHECKLIST',
+      <String, dynamic>{'checklist_id': checklistId, 'title': normalized},
+      baseVersion: task.version,
+    );
+    return updated;
+  }
+
+  Future<TaskItem> deleteChecklist({
+    required TaskItem task,
+    required String checklistId,
+  }) async {
+    _ensureChecklistEditable(task);
+    final now = DateTime.now().toUtc();
+    final updated = task.copyWith(
+      checklists: task.checklists
+          .where((checklist) => checklist.id != checklistId)
+          .toList(growable: false),
+      updatedAt: now,
+      syncState: LocalSyncState.pending,
+      syncError: null,
+    );
+    await _persistChecklistMutation(
+      updated,
+      'DELETE_CHECKLIST',
+      <String, dynamic>{'checklist_id': checklistId},
+      baseVersion: task.version,
+    );
+    return updated;
+  }
+
+  Future<TaskItem> addChecklistItem({
+    required TaskItem task,
+    required String checklistId,
+    required AppUser currentUser,
+    required String title,
+  }) async {
+    _ensureChecklistEditable(task);
+    final normalized = _validateChecklistText(
+      title,
+      maxLength: 300,
+      label: 'actividad',
+    );
+    final now = DateTime.now().toUtc();
+    final itemId = _uuid.v4();
+    TaskChecklist? target;
+    for (final checklist in task.checklists) {
+      if (checklist.id == checklistId) {
+        target = checklist;
+        break;
+      }
+    }
+    if (target == null) {
+      throw const FormatException('El checklist no existe.');
+    }
+    final position = target.items.isEmpty
+        ? 0
+        : target.items
+                  .map((item) => item.position)
+                  .reduce((a, b) => a > b ? a : b) +
+              1;
+    final item = TaskChecklistItem(
+      id: itemId,
+      title: normalized,
+      position: position,
+      isCompleted: false,
+      version: 0,
+      createdBy: currentUser,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final updated = _replaceChecklist(
+      task,
+      target.copyWith(
+        items: <TaskChecklistItem>[...target.items, item],
+        updatedAt: now,
+      ),
+      now,
+    );
+    await _persistChecklistMutation(
+      updated,
+      'CREATE_CHECKLIST_ITEM',
+      <String, dynamic>{
+        'checklist_id': checklistId,
+        'id': itemId,
+        'title': normalized,
+        'position': position,
+      },
+      baseVersion: task.version,
+    );
+    return updated;
+  }
+
+  Future<TaskItem> updateChecklistItemTitle({
+    required TaskItem task,
+    required String checklistId,
+    required String itemId,
+    required String title,
+  }) async {
+    _ensureChecklistEditable(task);
+    final normalized = _validateChecklistText(
+      title,
+      maxLength: 300,
+      label: 'actividad',
+    );
+    final now = DateTime.now().toUtc();
+    final target = _checklistById(task, checklistId);
+    final items = target.items
+        .map(
+          (item) => item.id == itemId
+              ? item.copyWith(title: normalized, updatedAt: now)
+              : item,
+        )
+        .toList(growable: false);
+    final updated = _replaceChecklist(
+      task,
+      target.copyWith(items: items, updatedAt: now),
+      now,
+    );
+    await _persistChecklistMutation(
+      updated,
+      'UPDATE_CHECKLIST_ITEM',
+      <String, dynamic>{
+        'checklist_id': checklistId,
+        'item_id': itemId,
+        'title': normalized,
+      },
+      baseVersion: task.version,
+    );
+    return updated;
+  }
+
+  Future<TaskItem> deleteChecklistItem({
+    required TaskItem task,
+    required String checklistId,
+    required String itemId,
+  }) async {
+    _ensureChecklistEditable(task);
+    final now = DateTime.now().toUtc();
+    final target = _checklistById(task, checklistId);
+    final updated = _replaceChecklist(
+      task,
+      target.copyWith(
+        items: target.items
+            .where((item) => item.id != itemId)
+            .toList(growable: false),
+        updatedAt: now,
+      ),
+      now,
+    );
+    await _persistChecklistMutation(
+      updated,
+      'DELETE_CHECKLIST_ITEM',
+      <String, dynamic>{'checklist_id': checklistId, 'item_id': itemId},
+      baseVersion: task.version,
+    );
+    return updated;
+  }
+
+  Future<TaskItem> setChecklistItemCompleted({
+    required TaskItem task,
+    required String checklistId,
+    required String itemId,
+    required AppUser currentUser,
+    required bool isCompleted,
+  }) async {
+    _ensureChecklistEditable(task);
+    final now = DateTime.now().toUtc();
+    final target = _checklistById(task, checklistId);
+    final items = target.items
+        .map(
+          (item) => item.id == itemId
+              ? item.copyWith(
+                  isCompleted: isCompleted,
+                  completedBy: isCompleted ? currentUser : null,
+                  completedAt: isCompleted ? now : null,
+                  updatedAt: now,
+                )
+              : item,
+        )
+        .toList(growable: false);
+    final updated = _replaceChecklist(
+      task,
+      target.copyWith(items: items, updatedAt: now),
+      now,
+    );
+    await _persistChecklistMutation(
+      updated,
+      'SET_CHECKLIST_ITEM_STATE',
+      <String, dynamic>{
+        'checklist_id': checklistId,
+        'item_id': itemId,
+        'is_completed': isCompleted,
+      },
+      baseVersion: task.version,
+    );
+    return updated;
+  }
+
+  Future<TaskItem> setChecklistCompleted({
+    required TaskItem task,
+    required String checklistId,
+    required AppUser currentUser,
+    required bool isCompleted,
+  }) async {
+    _ensureChecklistEditable(task);
+    final now = DateTime.now().toUtc();
+    final target = _checklistById(task, checklistId);
+    if (target.items.isEmpty) {
+      throw const FormatException(
+        'Agregue actividades antes de completar el checklist.',
+      );
+    }
+    final items = target.items
+        .map(
+          (item) => item.copyWith(
+            isCompleted: isCompleted,
+            completedBy: isCompleted ? currentUser : null,
+            completedAt: isCompleted ? now : null,
+            updatedAt: now,
+          ),
+        )
+        .toList(growable: false);
+    final updated = _replaceChecklist(
+      task,
+      target.copyWith(items: items, updatedAt: now),
+      now,
+    );
+    await _persistChecklistMutation(
+      updated,
+      'SET_CHECKLIST_STATE',
+      <String, dynamic>{
+        'checklist_id': checklistId,
+        'is_completed': isCompleted,
+      },
+      baseVersion: task.version,
+    );
+    return updated;
+  }
+
   Future<List<DepartmentSummary>> listDepartments() {
     return _remote.listDepartments();
   }
@@ -333,6 +677,77 @@ class TaskRepository {
         createdAt: DateTime.now().toUtc(),
       ),
     );
+  }
+
+  Future<void> _persistChecklistMutation(
+    TaskItem task,
+    String operationType,
+    Map<String, dynamic> payload, {
+    required int baseVersion,
+  }) async {
+    await _cache.upsertTask(task);
+    await _queue.enqueue(
+      SyncOperation(
+        operationId: _uuid.v4(),
+        entityId: task.id,
+        operationType: operationType,
+        baseVersion: baseVersion,
+        payload: payload,
+        createdAt: DateTime.now().toUtc(),
+      ),
+    );
+  }
+
+  void _ensureChecklistEditable(TaskItem task) {
+    if (task.status == 'COMPLETADA') {
+      throw const FormatException(
+        'Reabra la tarea antes de modificar sus checklists.',
+      );
+    }
+  }
+
+  TaskChecklist _checklistById(TaskItem task, String checklistId) {
+    for (final checklist in task.checklists) {
+      if (checklist.id == checklistId) {
+        return checklist;
+      }
+    }
+    throw const FormatException('El checklist no existe.');
+  }
+
+  TaskItem _replaceChecklist(
+    TaskItem task,
+    TaskChecklist replacement,
+    DateTime updatedAt,
+  ) {
+    return task.copyWith(
+      checklists: task.checklists
+          .map(
+            (checklist) =>
+                checklist.id == replacement.id ? replacement : checklist,
+          )
+          .toList(growable: false),
+      updatedAt: updatedAt,
+      syncState: LocalSyncState.pending,
+      syncError: null,
+    );
+  }
+
+  String _validateChecklistText(
+    String value, {
+    required int maxLength,
+    required String label,
+  }) {
+    final normalized = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.length < 2) {
+      throw FormatException('Ingrese un $label válido.');
+    }
+    if (normalized.length > maxLength) {
+      throw FormatException(
+        'El $label no puede superar $maxLength caracteres.',
+      );
+    }
+    return normalized;
   }
 
   String _validateTitle(String value) {

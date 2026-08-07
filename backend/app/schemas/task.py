@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.checklist import ChecklistRead
 from app.schemas.department import DepartmentSummary
 from app.schemas.user import UserSummary
 
@@ -108,5 +109,6 @@ class TaskRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    checklists: list[ChecklistRead] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

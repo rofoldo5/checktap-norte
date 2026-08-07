@@ -1,3 +1,4 @@
+from app.models.checklist import TaskChecklist, TaskChecklistItem
 from app.models.daily_report import DailyReport
 from app.models.department import Department, DepartmentMember
 from app.models.device_registration import DeviceRegistration
@@ -8,6 +9,8 @@ from app.models.user import User
 
 __all__ = [
     "DailyReport",
+    "TaskChecklist",
+    "TaskChecklistItem",
     "Department",
     "DepartmentMember",
     "DeviceRegistration",

@@ -77,16 +77,32 @@ class SyncService {
           if (taskJson == null) {
             throw StateError('El servidor no devolvio la tarea sincronizada.');
           }
-          final task = TaskItem.fromJson(
+          final serverTask = TaskItem.fromJson(
             taskJson,
             syncState: LocalSyncState.synced,
           );
-          await _cache.upsertTask(task);
+          final hasFollowing = await _queue.hasFollowingOperations(
+            operation.entityId,
+            localId,
+          );
+          if (hasFollowing) {
+            final localTask = await _cache.readTask(operation.entityId);
+            final merged =
+                localTask?.copyWith(
+                  version: serverTask.version,
+                  syncState: LocalSyncState.pending,
+                  syncError: null,
+                ) ??
+                serverTask.copyWith(syncState: LocalSyncState.pending);
+            await _cache.upsertTask(merged);
+          } else {
+            await _cache.upsertTask(serverTask);
+          }
           await _queue.remove(localId);
           await _queue.updateFollowingBaseVersions(
             operation.entityId,
             localId,
-            task.version,
+            serverTask.version,
           );
           applied += 1;
           continue;

@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
+from app.models.checklist import TaskChecklist
 from app.models.department import Department, DepartmentMember
 from app.models.device_registration import DeviceRegistration
 from app.models.notification_event import NotificationDelivery, NotificationEvent
@@ -226,6 +227,47 @@ class FirebaseNotificationService:
             data={
                 "task_title": task.title,
                 "department_name": department.name,
+                "actor_name": actor.name,
+            },
+        )
+
+    def notify_checklist_completed(
+        self,
+        *,
+        task_id: UUID,
+        checklist_id: UUID,
+        actor_id: UUID,
+    ) -> DeliveryReport:
+        with SessionLocal() as db:
+            task = db.get(Task, task_id)
+            checklist = db.get(TaskChecklist, checklist_id)
+            actor = db.get(User, actor_id)
+            if task is None or checklist is None or actor is None:
+                return DeliveryReport()
+            if checklist.task_id != task.id:
+                return DeliveryReport()
+            department = db.get(Department, task.department_id)
+            if department is None:
+                return DeliveryReport()
+            task_title = task.title
+            checklist_title = checklist.title
+            department_name = department.name
+
+        return self.send_to_department(
+            department_id=task.department_id,
+            event_type="checklist_completed",
+            title=f"Checklist completado en {department_name}",
+            body=(
+                f'{actor.name} completo "{checklist_title}" '
+                f'en la tarea "{task_title}".'
+            ),
+            actor_user_id=actor_id,
+            task_id=task_id,
+            data={
+                "task_title": task_title,
+                "checklist_id": str(checklist_id),
+                "checklist_title": checklist_title,
+                "department_name": department_name,
                 "actor_name": actor.name,
             },
         )

@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
@@ -14,9 +15,29 @@ from app.core.dependencies import get_current_user
 from app.models.processed_operation import ProcessedOperation
 from app.models.task import Task
 from app.models.user import User
+from app.schemas.checklist import (
+    ChecklistCreate,
+    ChecklistItemCreate,
+    ChecklistItemUpdate,
+    ChecklistSetCompleted,
+    ChecklistUpdate,
+)
 from app.schemas.sync import SyncOperation, SyncOperationResult, SyncRequest, SyncResponse
 from app.schemas.task import TaskCreate, TaskRead, TaskUpdate
+from app.services.checklist_service import (
+    create_checklist,
+    create_item,
+    delete_checklist,
+    delete_item,
+    get_checklist_or_404,
+    get_item_or_404,
+    set_checklist_completed,
+    set_item_completed,
+    update_checklist,
+    update_item,
+)
 from app.services.department_service import resolve_task_department
+from app.services.notification_service import notification_service
 from app.services.task_permissions import (
     require_task_edit,
     require_task_reopen,
@@ -25,6 +46,17 @@ from app.services.task_permissions import (
 from app.services.websocket_manager import manager
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+
+CHECKLIST_OPERATION_TYPES = {
+    "CREATE_CHECKLIST",
+    "UPDATE_CHECKLIST",
+    "DELETE_CHECKLIST",
+    "CREATE_CHECKLIST_ITEM",
+    "UPDATE_CHECKLIST_ITEM",
+    "DELETE_CHECKLIST_ITEM",
+    "SET_CHECKLIST_ITEM_STATE",
+    "SET_CHECKLIST_STATE",
+}
 
 
 def _task_read(task: Task) -> TaskRead:
@@ -64,7 +96,7 @@ def _apply_create(
     operation: SyncOperation,
     db: Session,
     current_user: User,
-) -> tuple[SyncOperationResult, str | None, str | None]:
+) -> tuple[SyncOperationResult, str | None, str | None, UUID | None]:
     existing_task = db.get(Task, operation.entity_id)
     if existing_task is not None:
         task = get_task_or_404(db, operation.entity_id, current_user)
@@ -75,6 +107,7 @@ def _apply_create(
                 detail="La tarea ya existe en el servidor",
                 task=_task_read(task),
             ),
+            None,
             None,
             None,
         )
@@ -103,6 +136,7 @@ def _apply_create(
         ),
         "task.created",
         "task_created",
+        None,
     )
 
 
@@ -110,11 +144,11 @@ def _apply_update(
     operation: SyncOperation,
     db: Session,
     current_user: User,
-) -> tuple[SyncOperationResult, str | None, str | None]:
+) -> tuple[SyncOperationResult, str | None, str | None, UUID | None]:
     task = get_task_or_404(db, operation.entity_id, current_user)
     require_task_edit(current_user, task)
     if task.version != operation.base_version:
-        return _version_conflict(operation, task), None, None
+        return _version_conflict(operation, task), None, None, None
 
     payload = TaskUpdate.model_validate(operation.payload)
     values = payload.model_dump(exclude_unset=True)
@@ -149,6 +183,7 @@ def _apply_update(
         ),
         "task.updated",
         "task_updated" if values or assignee_ids is not None else None,
+        None,
     )
 
 
@@ -156,10 +191,10 @@ def _apply_transition(
     operation: SyncOperation,
     db: Session,
     current_user: User,
-) -> tuple[SyncOperationResult, str | None, str | None]:
+) -> tuple[SyncOperationResult, str | None, str | None, UUID | None]:
     task = get_task_or_404(db, operation.entity_id, current_user)
     if task.version != operation.base_version:
-        return _version_conflict(operation, task), None, None
+        return _version_conflict(operation, task), None, None, None
 
     now = datetime.now(UTC)
     event = "task.updated"
@@ -168,7 +203,7 @@ def _apply_transition(
     if operation.operation_type == "START_TASK":
         require_task_work(current_user, task)
         if task.status == "COMPLETADA":
-            return _conflict(operation, task, "La tarea ya esta completada"), None, None
+            return _conflict(operation, task, "La tarea ya esta completada"), None, None, None
         task.status = "EN_PROGRESO"
         task.completed_by_id = None
         task.completed_at = None
@@ -183,6 +218,7 @@ def _apply_transition(
                     task,
                     f"La tarea ya fue completada por {completed_name}",
                 ),
+                None,
                 None,
                 None,
             )
@@ -206,6 +242,7 @@ def _apply_transition(
             ),
             None,
             None,
+            None,
         )
 
     task.version += 1
@@ -221,6 +258,113 @@ def _apply_transition(
         ),
         event,
         notification_event,
+        None,
+    )
+
+
+def _uuid_value(payload: dict[str, object], field: str) -> UUID:
+    value = payload.get(field)
+    if value is None:
+        raise ValueError(f"Falta el campo {field}")
+    return UUID(str(value))
+
+
+def _apply_checklist_operation(
+    operation: SyncOperation,
+    db: Session,
+    current_user: User,
+) -> tuple[SyncOperationResult, str | None, str | None, UUID | None]:
+    task = get_task_or_404(db, operation.entity_id, current_user)
+    require_task_work(current_user, task)
+    if task.version != operation.base_version:
+        return _version_conflict(operation, task), None, None, None
+
+    payload = dict(operation.payload)
+    checklist_id: UUID | None = None
+    became_completed = False
+
+    if operation.operation_type == "CREATE_CHECKLIST":
+        checklist = create_checklist(
+            db,
+            task,
+            current_user,
+            ChecklistCreate.model_validate(payload),
+        )
+        checklist_id = checklist.id
+    else:
+        checklist_id = _uuid_value(payload, "checklist_id")
+        checklist = get_checklist_or_404(db, task, checklist_id)
+
+        if operation.operation_type == "UPDATE_CHECKLIST":
+            values = {key: value for key, value in payload.items() if key != "checklist_id"}
+            update_checklist(
+                db,
+                task,
+                checklist,
+                ChecklistUpdate.model_validate(values),
+            )
+        elif operation.operation_type == "DELETE_CHECKLIST":
+            delete_checklist(db, task, checklist)
+        elif operation.operation_type == "CREATE_CHECKLIST_ITEM":
+            values = {key: value for key, value in payload.items() if key != "checklist_id"}
+            create_item(
+                db,
+                task,
+                checklist,
+                current_user,
+                ChecklistItemCreate.model_validate(values),
+            )
+        elif operation.operation_type == "SET_CHECKLIST_STATE":
+            state = ChecklistSetCompleted.model_validate(payload)
+            became_completed = set_checklist_completed(
+                db,
+                task,
+                checklist,
+                current_user,
+                state.is_completed,
+            )
+        else:
+            item_id = _uuid_value(payload, "item_id")
+            item = get_item_or_404(db, checklist, item_id)
+            if operation.operation_type == "UPDATE_CHECKLIST_ITEM":
+                values = {
+                    key: value
+                    for key, value in payload.items()
+                    if key not in {"checklist_id", "item_id"}
+                }
+                update_item(
+                    db,
+                    task,
+                    checklist,
+                    item,
+                    ChecklistItemUpdate.model_validate(values),
+                )
+            elif operation.operation_type == "DELETE_CHECKLIST_ITEM":
+                delete_item(db, task, checklist, item)
+            elif operation.operation_type == "SET_CHECKLIST_ITEM_STATE":
+                state = ChecklistSetCompleted.model_validate(payload)
+                _, became_completed = set_item_completed(
+                    db,
+                    task,
+                    checklist,
+                    item,
+                    current_user,
+                    state.is_completed,
+                )
+            else:
+                raise ValueError(f"Operacion no soportada: {operation.operation_type}")
+
+    db.flush()
+    task = get_task_or_404(db, task.id, current_user)
+    return (
+        SyncOperationResult(
+            operation_id=operation.operation_id,
+            status="APPLIED",
+            task=_task_read(task),
+        ),
+        "task.checklist.updated",
+        "checklist_completed" if became_completed else None,
+        checklist_id if became_completed else None,
     )
 
 
@@ -228,7 +372,7 @@ def _process_operation(
     operation: SyncOperation,
     db: Session,
     current_user: User,
-) -> tuple[SyncOperationResult, str | None, str | None, bool]:
+) -> tuple[SyncOperationResult, str | None, str | None, UUID | None, bool]:
     existing = db.get(ProcessedOperation, operation.operation_id)
     if existing is not None:
         if existing.user_id != current_user.id:
@@ -240,21 +384,30 @@ def _process_operation(
                 ),
                 None,
                 None,
+                None,
                 True,
             )
-        return _stored_result(existing), None, None, True
+        return _stored_result(existing), None, None, None, True
 
     if operation.operation_type == "CREATE_TASK":
-        result, event, notification_event = _apply_create(operation, db, current_user)
+        result, event, notification_event, checklist_id = _apply_create(
+            operation, db, current_user
+        )
     elif operation.operation_type == "UPDATE_TASK":
-        result, event, notification_event = _apply_update(operation, db, current_user)
+        result, event, notification_event, checklist_id = _apply_update(
+            operation, db, current_user
+        )
+    elif operation.operation_type in CHECKLIST_OPERATION_TYPES:
+        result, event, notification_event, checklist_id = _apply_checklist_operation(
+            operation, db, current_user
+        )
     else:
-        result, event, notification_event = _apply_transition(
+        result, event, notification_event, checklist_id = _apply_transition(
             operation,
             db,
             current_user,
         )
-    return result, event, notification_event, False
+    return result, event, notification_event, checklist_id, False
 
 
 @router.post("/operations", response_model=SyncResponse)
@@ -269,12 +422,15 @@ async def process_operations(
     for operation in payload.operations:
         event: str | None = None
         notification_event: str | None = None
+        checklist_id: UUID | None = None
         try:
-            result, event, notification_event, already_stored = _process_operation(
-                operation,
-                db,
-                current_user,
-            )
+            (
+                result,
+                event,
+                notification_event,
+                checklist_id,
+                already_stored,
+            ) = _process_operation(operation, db, current_user)
             if not already_stored:
                 db.add(
                     ProcessedOperation(
@@ -309,6 +465,7 @@ async def process_operations(
             results.append(result)
             event = None
             notification_event = None
+            checklist_id = None
 
         if event is not None and result.task is not None:
             await manager.broadcast(
@@ -321,11 +478,19 @@ async def process_operations(
             )
 
         if notification_event is not None and result.task is not None:
-            schedule_task_notification(
-                background_tasks,
-                event_type=notification_event,
-                task_id=result.task.id,
-                actor_id=current_user.id,
-            )
+            if notification_event == "checklist_completed" and checklist_id is not None:
+                background_tasks.add_task(
+                    notification_service.notify_checklist_completed,
+                    task_id=result.task.id,
+                    checklist_id=checklist_id,
+                    actor_id=current_user.id,
+                )
+            else:
+                schedule_task_notification(
+                    background_tasks,
+                    event_type=notification_event,
+                    task_id=result.task.id,
+                    actor_id=current_user.id,
+                )
 
     return SyncResponse(results=results)

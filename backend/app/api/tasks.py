@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.models.checklist import TaskChecklist, TaskChecklistItem
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskRead, TaskStatus, TaskUpdate
@@ -36,6 +37,13 @@ def task_query():
         joinedload(Task.assigned_to).selectinload(User.department_memberships),
         joinedload(Task.completed_by).selectinload(User.department_memberships),
         selectinload(Task.assignees).selectinload(User.department_memberships),
+        selectinload(Task.checklists).joinedload(TaskChecklist.created_by),
+        selectinload(Task.checklists)
+        .selectinload(TaskChecklist.items)
+        .joinedload(TaskChecklistItem.created_by),
+        selectinload(Task.checklists)
+        .selectinload(TaskChecklist.items)
+        .joinedload(TaskChecklistItem.completed_by),
     )
 
 

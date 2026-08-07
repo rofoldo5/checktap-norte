@@ -30,7 +30,7 @@ services:
         max-file: "5"
 
   api:
-    image: ${CHECKTAP_IMAGE:-checktap-backend}:${CHECKTAP_IMAGE_TAG:-0.9.1}
+    image: ${CHECKTAP_IMAGE:-checktap-backend}:${CHECKTAP_IMAGE_TAG:-0.11.0}
     pull_policy: never
     container_name: checktap-api
     restart: unless-stopped
@@ -39,7 +39,7 @@ services:
         condition: service_healthy
     environment: &checktap_environment
       APP_NAME: CheckTap
-      APP_VERSION: ${CHECKTAP_IMAGE_TAG:-0.9.1}
+      APP_VERSION: ${CHECKTAP_IMAGE_TAG:-0.11.0}
       ENVIRONMENT: production
       API_PREFIX: /api/v1
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -94,7 +94,7 @@ services:
         max-file: "5"
 
   scheduler:
-    image: ${CHECKTAP_IMAGE:-checktap-backend}:${CHECKTAP_IMAGE_TAG:-0.9.1}
+    image: ${CHECKTAP_IMAGE:-checktap-backend}:${CHECKTAP_IMAGE_TAG:-0.11.0}
     pull_policy: never
     container_name: checktap-scheduler
     restart: unless-stopped

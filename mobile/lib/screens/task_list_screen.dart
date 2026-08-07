@@ -14,6 +14,18 @@ import '../services/realtime_service.dart';
 import '../services/session_store.dart';
 import '../services/sync_trigger_service.dart';
 import '../widgets/task_form_dialog.dart';
+import '../features/dashboard/domain/dashboard_snapshot.dart';
+import '../features/dashboard/presentation/widgets/activity_tile.dart';
+import '../ui/components/checktap_logo.dart';
+import '../ui/components/checktap_shell.dart';
+import '../ui/components/empty_state.dart';
+import '../ui/components/metric_card.dart';
+import '../ui/components/search_field.dart';
+import '../ui/components/section_header.dart';
+import '../ui/components/sync_banner.dart';
+import '../ui/components/task_card.dart';
+import '../ui/theme/checktap_colors.dart';
+import '../ui/theme/checktap_spacing.dart';
 import 'department_management_screen.dart';
 import 'notification_validation_screen.dart';
 import 'report_screen.dart';
@@ -34,6 +46,9 @@ class _TaskListScreenState extends State<TaskListScreen>
   late final TaskRepository _repository;
   final RealtimeService _realtimeService = RealtimeService();
   final SyncTriggerService _syncTriggerService = SyncTriggerService();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
 
   List<TaskItem> _tasks = <TaskItem>[];
   List<AppUser> _users = <AppUser>[];
@@ -48,6 +63,8 @@ class _TaskListScreenState extends State<TaskListScreen>
   String? _selectedDepartmentId;
   DateTime? _lastSyncAt;
   int _pendingOperations = 0;
+  int _navigationIndex = 0;
+  String _searchQuery = '';
 
   String? get _statusFilter => _filter == 'TODAS' ? null : _filter;
 
@@ -114,6 +131,8 @@ class _TaskListScreenState extends State<TaskListScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     _syncTriggerService.dispose();
     _realtimeService.dispose();
     super.dispose();
@@ -462,260 +481,543 @@ class _TaskListScreenState extends State<TaskListScreen>
         '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
   }
 
+  List<TaskItem> get _visibleTasks {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) {
+      return _tasks;
+    }
+    return _tasks
+        .where((task) {
+          final haystack = <String>[
+            task.title,
+            task.description ?? '',
+            task.department.name,
+            task.createdBy.name,
+            task.assigneeLabel,
+          ].join(' ').toLowerCase();
+          return haystack.contains(query);
+        })
+        .toList(growable: false);
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _searchQuery = value);
+    });
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    setState(() => _searchQuery = '');
+  }
+
+  void _selectNavigation(int index) {
+    if (index == 3) {
+      unawaited(_openReports());
+      return;
+    }
+    if (index == 4) {
+      _scaffoldKey.currentState?.openDrawer();
+      return;
+    }
+    setState(() => _navigationIndex = index);
+  }
+
+  void _showTasksWithFilter(String filter) {
+    setState(() {
+      _navigationIndex = 1;
+      _filter = filter;
+    });
+    unawaited(_changeFilter(filter));
+  }
+
+  void _closeDrawerThen(Future<void> Function() action) {
+    Navigator.of(context).pop();
+    unawaited(Future<void>.microtask(action));
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isWide = MediaQuery.sizeOf(context).width >= 900;
+    final showFab = _navigationIndex == 0 || _navigationIndex == 1;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tareas compartidas'),
-        actions: <Widget>[
-          if (_pendingOperations > 0)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Badge(
-                  label: Text('$_pendingOperations'),
-                  child: const Icon(Icons.sync_problem),
-                ),
-              ),
+      key: _scaffoldKey,
+      appBar: CheckTapTopBar(
+        title: const CheckTapWordmark(fontSize: 20),
+        onMenu: () => _scaffoldKey.currentState?.openDrawer(),
+        connectionIcon: _connectionIcon(),
+        connectionTooltip: _connectionTooltip(),
+        onSync: () => _synchronizeAndRefresh(showLoader: false),
+        syncing: _syncRunning,
+        pendingOperations: _pendingOperations,
+      ),
+      drawer: CheckTapDrawer(
+        user: widget.session.user!,
+        isAdmin: widget.session.user!.isAdmin,
+        pendingOperations: _pendingOperations,
+        onUsers: () => _closeDrawerThen(_openUsers),
+        onDepartments: () => _closeDrawerThen(_openDepartments),
+        onReports: () => _closeDrawerThen(_openReports),
+        onNotifications: () => _closeDrawerThen(_openNotifications),
+        onLogout: () => _closeDrawerThen(_returnToLogin),
+      ),
+      floatingActionButton: showFab
+          ? FloatingActionButton(
+              tooltip: 'Nueva tarea',
+              onPressed: _showCreateDialog,
+              child: const Icon(Icons.add_rounded),
+            )
+          : null,
+      bottomNavigationBar: isWide ? null : _buildBottomNavigation(),
+      body: Column(
+        children: <Widget>[
+          if (_offlineMode || _usingCachedData || _pendingOperations > 0)
+            SyncBanner(
+              offline: _offlineMode,
+              cached: _usingCachedData,
+              pendingOperations: _pendingOperations,
+              lastSyncLabel: 'Última sincronización: ${_formatLastSync()}',
+              onRetry: _syncRunning
+                  ? null
+                  : () => _synchronizeAndRefresh(showLoader: false),
             ),
-          IconButton(
-            tooltip: 'Sincronizar ahora',
-            onPressed: _syncRunning
-                ? null
-                : () => _synchronizeAndRefresh(showLoader: false),
-            icon: _syncRunning
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+          Expanded(
+            child: isWide
+                ? Row(
+                    children: <Widget>[
+                      _buildNavigationRail(),
+                      const VerticalDivider(width: 1),
+                      Expanded(
+                        child: _PageWidthLimiter(child: _buildCurrentPage()),
+                      ),
+                    ],
                   )
-                : const Icon(Icons.sync),
+                : _PageWidthLimiter(child: _buildCurrentPage()),
           ),
-          Tooltip(
-            message: _connectionTooltip(),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Icon(_connectionIcon()),
-            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCurrentPage() {
+    return AnimatedSwitcher(
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 180),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: switch (_navigationIndex) {
+        0 => _buildDashboardPage(),
+        1 => _buildTasksPage(),
+        2 => _buildActivityPage(),
+        _ => _buildDashboardPage(),
+      },
+    );
+  }
+
+  Widget _buildBottomNavigation() {
+    final mediaQuery = MediaQuery.of(context);
+    final largeText = mediaQuery.textScaler.scale(14) >= 19;
+    return NavigationBar(
+      height: largeText ? 88 : 72,
+      labelBehavior: mediaQuery.size.width < 360
+          ? NavigationDestinationLabelBehavior.onlyShowSelected
+          : NavigationDestinationLabelBehavior.alwaysShow,
+      selectedIndex: _navigationIndex.clamp(0, 2).toInt(),
+      onDestinationSelected: _selectNavigation,
+      destinations: const <NavigationDestination>[
+        NavigationDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home_rounded),
+          label: 'Inicio',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.checklist_outlined),
+          selectedIcon: Icon(Icons.checklist_rounded),
+          label: 'Tareas',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.auto_graph_outlined),
+          selectedIcon: Icon(Icons.auto_graph_rounded),
+          label: 'Actividad',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.picture_as_pdf_outlined),
+          selectedIcon: Icon(Icons.picture_as_pdf_rounded),
+          label: 'Informes',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.more_horiz_rounded),
+          label: 'Más',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNavigationRail() {
+    return NavigationRail(
+      minWidth: 82,
+      groupAlignment: -0.75,
+      labelType: NavigationRailLabelType.all,
+      selectedIndex: _navigationIndex.clamp(0, 2).toInt(),
+      onDestinationSelected: _selectNavigation,
+      destinations: const <NavigationRailDestination>[
+        NavigationRailDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home_rounded),
+          label: Text('Inicio'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.checklist_outlined),
+          selectedIcon: Icon(Icons.checklist_rounded),
+          label: Text('Tareas'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.auto_graph_outlined),
+          selectedIcon: Icon(Icons.auto_graph_rounded),
+          label: Text('Actividad'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.picture_as_pdf_outlined),
+          label: Text('Informes'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.more_horiz_rounded),
+          label: Text('Más'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDashboardPage() {
+    final snapshot = DashboardSnapshot.fromTasks(_tasks);
+    final currentUser = widget.session.user!;
+
+    if (_loading && _tasks.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _tasks.isEmpty) {
+      return CheckTapEmptyState(
+        icon: Icons.cloud_off_rounded,
+        title: 'No pudimos cargar tu panel',
+        message: _error!,
+        actionLabel: 'Reintentar',
+        onAction: () => _synchronizeAndRefresh(showLoader: true),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => _synchronizeAndRefresh(showLoader: false),
+      child: ListView(
+        key: const PageStorageKey<String>('dashboard-page'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(
+          CheckTapSpacing.md,
+          CheckTapSpacing.sm,
+          CheckTapSpacing.md,
+          110,
+        ),
+        children: <Widget>[
+          _DashboardHero(
+            userName: currentUser.name,
+            departments: _activeDepartments,
+            selectedDepartmentId: _selectedDepartmentId,
+            onDepartmentChanged: _loading ? null : _changeDepartment,
           ),
-          PopupMenuButton<String>(
-            onSelected: (value) async {
-              if (value == 'users') {
-                await _openUsers();
-                return;
-              }
-              if (value == 'departments') {
-                await _openDepartments();
-                return;
-              }
-              if (value == 'reports') {
-                await _openReports();
-                return;
-              }
-              if (value == 'notifications') {
-                await _openNotifications();
-                return;
-              }
-              if (value == 'logout') {
-                await _returnToLogin();
-              }
+          const SizedBox(height: CheckTapSpacing.lg),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final scaledBodySize = MediaQuery.textScalerOf(context).scale(14);
+              final largeText = scaledBodySize >= 19;
+              final columns = largeText
+                  ? (constraints.maxWidth >= 600 ? 2 : 1)
+                  : constraints.maxWidth >= 760
+                  ? 4
+                  : 2;
+              final scaleBoost = ((scaledBodySize / 14) - 1)
+                  .clamp(0.0, 1.5)
+                  .toDouble();
+              final mainAxisExtent = 148.0 + (80.0 * scaleBoost);
+              final cards = <Widget>[
+                MetricCard(
+                  label: 'Pendientes',
+                  value: snapshot.pending,
+                  color: CheckTapColors.primary,
+                  icon: Icons.schedule_rounded,
+                  onTap: () => _showTasksWithFilter('PENDIENTE'),
+                ),
+                MetricCard(
+                  label: 'En curso',
+                  value: snapshot.inProgress,
+                  color: CheckTapColors.cyan,
+                  icon: Icons.play_circle_outline_rounded,
+                  onTap: () => _showTasksWithFilter('EN_PROGRESO'),
+                ),
+                MetricCard(
+                  label: 'Completadas',
+                  value: snapshot.completed,
+                  color: CheckTapColors.success,
+                  icon: Icons.check_circle_outline_rounded,
+                  onTap: () => _showTasksWithFilter('COMPLETADA'),
+                ),
+                MetricCard(
+                  label: 'Prioridad alta',
+                  value: snapshot.highPriority,
+                  color: CheckTapColors.danger,
+                  icon: Icons.priority_high_rounded,
+                  onTap: () {
+                    setState(() {
+                      _navigationIndex = 1;
+                      _filter = 'TODAS';
+                      _searchQuery = '';
+                      _searchController.clear();
+                    });
+                  },
+                ),
+              ];
+              return GridView.builder(
+                itemCount: cards.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  mainAxisExtent: mainAxisExtent,
+                  mainAxisSpacing: CheckTapSpacing.sm,
+                  crossAxisSpacing: CheckTapSpacing.sm,
+                ),
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemBuilder: (context, index) => cards[index],
+              );
             },
-            itemBuilder: (context) => <PopupMenuEntry<String>>[
-              PopupMenuItem<String>(
-                enabled: false,
-                child: Text(widget.session.user!.name),
+          ),
+          const SizedBox(height: CheckTapSpacing.xl),
+          SectionHeader(
+            title: 'Requieren atención',
+            subtitle: 'Tareas prioritarias para el equipo',
+            actionLabel: 'Ver todas',
+            onAction: () => setState(() => _navigationIndex = 1),
+          ),
+          const SizedBox(height: CheckTapSpacing.sm),
+          if (snapshot.attentionTasks.isEmpty)
+            const _CompactInfoCard(
+              icon: Icons.verified_rounded,
+              title: 'Todo está bajo control',
+              message: 'No hay tareas de alta prioridad pendientes.',
+              color: CheckTapColors.success,
+            )
+          else
+            ...snapshot.attentionTasks.map(
+              (task) => Padding(
+                padding: const EdgeInsets.only(bottom: CheckTapSpacing.sm),
+                child: CheckTapTaskCard(
+                  key: ValueKey<String>('attention-${task.id}'),
+                  compact: true,
+                  task: task,
+                  canEdit: canEditTask(currentUser, task),
+                  canWork: canWorkTask(currentUser, task),
+                  canReopen: canReopenTask(currentUser, task),
+                  onOpen: () => _openTask(task),
+                  onStart: () =>
+                      _runTaskAction(() => _repository.startTask(task)),
+                  onComplete: () => _runTaskAction(
+                    () => _repository.completeTask(task, currentUser),
+                  ),
+                  onReopen: () =>
+                      _runTaskAction(() => _repository.reopenTask(task)),
+                  onResolveConflict: () => _resolveConflict(task),
+                ),
               ),
-              const PopupMenuDivider(),
-              if (widget.session.user!.isAdmin)
-                const PopupMenuItem<String>(
-                  value: 'users',
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.people),
-                    title: Text('Usuarios'),
+            ),
+          const SizedBox(height: CheckTapSpacing.lg),
+          SectionHeader(
+            title: 'Actividad del equipo',
+            subtitle: 'Últimos movimientos registrados',
+            actionLabel: 'Ver actividad',
+            onAction: () => setState(() => _navigationIndex = 2),
+          ),
+          const SizedBox(height: CheckTapSpacing.sm),
+          if (snapshot.activity.isEmpty)
+            const _CompactInfoCard(
+              icon: Icons.auto_graph_rounded,
+              title: 'Sin actividad reciente',
+              message: 'Los movimientos del equipo aparecerán aquí.',
+              color: CheckTapColors.info,
+            )
+          else
+            ...snapshot.activity
+                .take(3)
+                .map(
+                  (activity) => Padding(
+                    padding: const EdgeInsets.only(bottom: CheckTapSpacing.sm),
+                    child: ActivityTile(activity: activity),
                   ),
                 ),
-              if (widget.session.user!.isAdmin)
-                const PopupMenuItem<String>(
-                  value: 'departments',
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.domain),
-                    title: Text('Departamentos'),
-                  ),
-                ),
-              const PopupMenuItem<String>(
-                value: 'reports',
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.picture_as_pdf),
-                  title: Text('Informe diario'),
-                ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTasksPage() {
+    return Column(
+      key: const ValueKey<String>('tasks-page'),
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            CheckTapSpacing.md,
+            CheckTapSpacing.sm,
+            CheckTapSpacing.md,
+            0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const SectionHeader(
+                title: 'Tareas',
+                subtitle: 'Organiza y acompaña el trabajo de tu equipo',
               ),
-              const PopupMenuItem<String>(
-                value: 'notifications',
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.notifications_active),
-                  title: Text('Notificaciones'),
-                ),
+              const SizedBox(height: CheckTapSpacing.md),
+              CheckTapSearchField(
+                controller: _searchController,
+                hintText: 'Buscar tareas, personas o departamentos…',
+                onChanged: _onSearchChanged,
+                onClear: _clearSearch,
               ),
-              const PopupMenuDivider(),
-              const PopupMenuItem<String>(
-                value: 'logout',
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.logout),
-                  title: Text('Cerrar sesion'),
+              const SizedBox(height: CheckTapSpacing.sm),
+              _DepartmentSelector(
+                departments: _activeDepartments,
+                selectedDepartmentId: _selectedDepartmentId,
+                onChanged: _loading ? null : _changeDepartment,
+              ),
+              const SizedBox(height: CheckTapSpacing.sm),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: <Widget>[
+                    _FilterChip(
+                      label: 'Todas',
+                      value: 'TODAS',
+                      selectedValue: _filter,
+                      onSelected: _changeFilter,
+                    ),
+                    _FilterChip(
+                      label: 'Pendientes',
+                      value: 'PENDIENTE',
+                      selectedValue: _filter,
+                      onSelected: _changeFilter,
+                    ),
+                    _FilterChip(
+                      label: 'En curso',
+                      value: 'EN_PROGRESO',
+                      selectedValue: _filter,
+                      onSelected: _changeFilter,
+                    ),
+                    _FilterChip(
+                      label: 'Completadas',
+                      value: 'COMPLETADA',
+                      selectedValue: _filter,
+                      onSelected: _changeFilter,
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateDialog,
-        icon: const Icon(Icons.add),
-        label: const Text('Nueva tarea'),
-      ),
-      body: Column(
-        children: <Widget>[
-          if (_offlineMode || _usingCachedData || _pendingOperations > 0)
-            _buildConnectionBanner(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-            child: DropdownButtonFormField<String?>(
-              initialValue: _selectedDepartmentId,
-              decoration: const InputDecoration(
-                labelText: 'Departamento actual',
-                prefixIcon: Icon(Icons.domain),
-                border: OutlineInputBorder(),
+        ),
+        Expanded(child: _buildTaskBody()),
+      ],
+    );
+  }
+
+  Widget _buildActivityPage() {
+    final snapshot = DashboardSnapshot.fromTasks(_tasks);
+    return RefreshIndicator(
+      onRefresh: () => _synchronizeAndRefresh(showLoader: false),
+      child: snapshot.activity.isEmpty
+          ? ListView(
+              key: const ValueKey<String>('activity-empty-page'),
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const <Widget>[
+                SizedBox(height: 120),
+                CheckTapEmptyState(
+                  icon: Icons.auto_graph_rounded,
+                  title: 'Sin actividad reciente',
+                  message:
+                      'Cuando el equipo cree, inicie o complete tareas, lo verás aquí.',
+                ),
+              ],
+            )
+          : ListView.separated(
+              key: const ValueKey<String>('activity-page'),
+              padding: const EdgeInsets.fromLTRB(
+                CheckTapSpacing.md,
+                CheckTapSpacing.sm,
+                CheckTapSpacing.md,
+                110,
               ),
-              items: <DropdownMenuItem<String?>>[
-                const DropdownMenuItem<String?>(
-                  value: null,
-                  child: Text('Todos mis departamentos'),
-                ),
-                ..._activeDepartments.map(
-                  (department) => DropdownMenuItem<String?>(
-                    value: department.id,
-                    child: Text(department.name),
-                  ),
-                ),
-              ],
-              onChanged: _loading ? null : _changeDepartment,
-            ),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-            child: SegmentedButton<String>(
-              segments: const <ButtonSegment<String>>[
-                ButtonSegment<String>(value: 'TODAS', label: Text('Todas')),
-                ButtonSegment<String>(
-                  value: 'PENDIENTE',
-                  label: Text('Pendientes'),
-                ),
-                ButtonSegment<String>(
-                  value: 'EN_PROGRESO',
-                  label: Text('En progreso'),
-                ),
-                ButtonSegment<String>(
-                  value: 'COMPLETADA',
-                  label: Text('Completadas'),
-                ),
-              ],
-              selected: <String>{_filter},
-              onSelectionChanged: (selection) {
-                _changeFilter(selection.first);
+              itemCount: snapshot.activity.length + 1,
+              separatorBuilder: (_, _) =>
+                  const SizedBox(height: CheckTapSpacing.sm),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return const Padding(
+                    padding: EdgeInsets.only(bottom: CheckTapSpacing.xs),
+                    child: SectionHeader(
+                      title: 'Actividad del equipo',
+                      subtitle: 'Historial reciente de las tareas visibles',
+                    ),
+                  );
+                }
+                return ActivityTile(activity: snapshot.activity[index - 1]);
               },
             ),
-          ),
-          Expanded(child: _buildBody()),
-        ],
-      ),
     );
   }
 
-  Widget _buildConnectionBanner() {
-    final colorScheme = Theme.of(context).colorScheme;
-    final offline = _offlineMode;
-    final title = offline
-        ? 'Modo sin conexion'
-        : _pendingOperations > 0
-        ? 'Cambios pendientes de sincronizacion'
-        : 'Mostrando datos guardados mientras se actualiza';
-    final detail = _pendingOperations > 0
-        ? '$_pendingOperations operacion(es) pendientes. Ultima sincronizacion: ${_formatLastSync()}'
-        : 'Ultima sincronizacion: ${_formatLastSync()}';
-
-    return Container(
-      width: double.infinity,
-      color: offline
-          ? colorScheme.errorContainer
-          : colorScheme.secondaryContainer,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: <Widget>[
-          Icon(offline ? Icons.cloud_off : Icons.sync),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(title, style: Theme.of(context).textTheme.titleSmall),
-                Text(detail, style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBody() {
+  Widget _buildTaskBody() {
+    final visibleTasks = _visibleTasks;
     if (_loading && _tasks.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
     if (_error != null && _tasks.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(Icons.cloud_off, size: 48),
-              const SizedBox(height: 12),
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              FilledButton(
-                onPressed: () => _synchronizeAndRefresh(showLoader: true),
-                child: const Text('Reintentar'),
-              ),
-            ],
-          ),
-        ),
+      return CheckTapEmptyState(
+        icon: Icons.cloud_off_rounded,
+        title: 'No pudimos cargar las tareas',
+        message: _error!,
+        actionLabel: 'Reintentar',
+        onAction: () => _synchronizeAndRefresh(showLoader: true),
       );
     }
 
-    if (_tasks.isEmpty) {
+    if (visibleTasks.isEmpty) {
       return RefreshIndicator(
         onRefresh: () => _synchronizeAndRefresh(showLoader: false),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           children: <Widget>[
-            const SizedBox(height: 150),
-            const Icon(Icons.inbox_outlined, size: 58),
-            const SizedBox(height: 12),
-            const Center(child: Text('No hay tareas en esta vista.')),
-            if (_offlineMode) ...<Widget>[
-              const SizedBox(height: 8),
-              const Center(
-                child: Text(
-                  'Puede crear tareas; se enviaran al recuperar conexion.',
-                ),
-              ),
-            ],
+            const SizedBox(height: 70),
+            CheckTapEmptyState(
+              icon: _searchQuery.isEmpty
+                  ? Icons.inbox_outlined
+                  : Icons.search_off_rounded,
+              title: _searchQuery.isEmpty
+                  ? 'No hay tareas en esta vista'
+                  : 'No encontramos coincidencias',
+              message: _offlineMode
+                  ? 'Puedes crear tareas sin conexión; se enviarán cuando vuelva la red.'
+                  : _searchQuery.isEmpty
+                  ? 'Crea la primera tarea o cambia los filtros activos.'
+                  : 'Prueba con otro título, persona o departamento.',
+              actionLabel: _searchQuery.isEmpty
+                  ? 'Crear tarea'
+                  : 'Limpiar búsqueda',
+              onAction: _searchQuery.isEmpty ? _showCreateDialog : _clearSearch,
+            ),
           ],
         ),
       );
@@ -724,13 +1026,20 @@ class _TaskListScreenState extends State<TaskListScreen>
     return RefreshIndicator(
       onRefresh: () => _synchronizeAndRefresh(showLoader: false),
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
-        itemCount: _tasks.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 8),
+        key: const PageStorageKey<String>('task-list'),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: const EdgeInsets.fromLTRB(
+          CheckTapSpacing.md,
+          CheckTapSpacing.sm,
+          CheckTapSpacing.md,
+          110,
+        ),
+        itemCount: visibleTasks.length,
+        separatorBuilder: (_, _) => const SizedBox(height: CheckTapSpacing.sm),
         itemBuilder: (context, index) {
-          final task = _tasks[index];
+          final task = visibleTasks[index];
           final currentUser = widget.session.user!;
-          return _TaskCard(
+          return CheckTapTaskCard(
             key: ValueKey<String>(task.id),
             task: task,
             canEdit: canEditTask(currentUser, task),
@@ -750,174 +1059,259 @@ class _TaskListScreenState extends State<TaskListScreen>
   }
 }
 
-class _TaskCard extends StatelessWidget {
-  const _TaskCard({
-    super.key,
-    required this.task,
-    required this.canEdit,
-    required this.canWork,
-    required this.canReopen,
-    required this.onOpen,
-    required this.onStart,
-    required this.onComplete,
-    required this.onReopen,
-    required this.onResolveConflict,
+class _DashboardHero extends StatelessWidget {
+  const _DashboardHero({
+    required this.userName,
+    required this.departments,
+    required this.selectedDepartmentId,
+    required this.onDepartmentChanged,
   });
 
-  final TaskItem task;
-  final bool canEdit;
-  final bool canWork;
-  final bool canReopen;
-  final VoidCallback onOpen;
-  final VoidCallback onStart;
-  final VoidCallback onComplete;
-  final VoidCallback onReopen;
-  final VoidCallback onResolveConflict;
+  final String userName;
+  final List<DepartmentSummary> departments;
+  final String? selectedDepartmentId;
+  final ValueChanged<String?>? onDepartmentChanged;
+
+  String get _firstName {
+    final normalized = userName.trim();
+    if (normalized.isEmpty) {
+      return 'equipo';
+    }
+    return normalized.split(RegExp(r'\s+')).first;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final completed = task.status == 'COMPLETADA';
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onOpen,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
+    return Container(
+      padding: const EdgeInsets.all(CheckTapSpacing.lg),
+      decoration: BoxDecoration(
+        gradient: CheckTapColors.quietGradient,
+        borderRadius: BorderRadius.circular(CheckTapRadius.xl),
+        border: Border.all(color: CheckTapColors.border),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final largeText = MediaQuery.textScalerOf(context).scale(14) >= 19;
+          final compact = constraints.maxWidth < 440 || largeText;
+          final greeting = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      task.title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        decoration: completed
-                            ? TextDecoration.lineThrough
-                            : null,
-                      ),
-                    ),
-                  ),
-                  _Tag(label: task.priority),
-                ],
-              ),
-              if (task.description?.isNotEmpty == true) ...<Widget>[
-                const SizedBox(height: 8),
-                Text(
-                  task.description!,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
+              Text(
+                '¡Buenos días!',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: CheckTapColors.textMuted,
                 ),
-              ],
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: <Widget>[
-                  _Tag(label: task.status.replaceAll('_', ' ')),
-                  _SyncTag(state: task.syncState),
-                  Text('v${task.version}'),
-                  Text('Departamento: ${task.department.name}'),
-                  Text('Creador: ${task.createdBy.name}'),
-                  Text('Responsables: ${task.assigneeLabel}'),
-                  if (task.completedBy != null)
-                    Text('Completada por: ${task.completedBy!.name}'),
-                ],
               ),
-              if (task.syncError != null) ...<Widget>[
-                const SizedBox(height: 10),
-                Text(
-                  task.syncError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 6,
-                runSpacing: 6,
-                children: <Widget>[
-                  TextButton.icon(
-                    onPressed: onOpen,
-                    icon: Icon(canEdit ? Icons.edit : Icons.visibility),
-                    label: Text(canEdit ? 'Detalle / editar' : 'Detalle'),
-                  ),
-                  if (task.syncState == LocalSyncState.conflict)
-                    TextButton.icon(
-                      onPressed: onResolveConflict,
-                      icon: const Icon(Icons.rule),
-                      label: const Text('Aceptar servidor'),
-                    ),
-                  if (task.status == 'PENDIENTE' && canWork)
-                    TextButton.icon(
-                      onPressed: onStart,
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Iniciar'),
-                    ),
-                  if (!completed && canWork)
-                    FilledButton.icon(
-                      onPressed: onComplete,
-                      icon: const Icon(Icons.check),
-                      label: const Text('Completar'),
-                    ),
-                  if (completed && canReopen)
-                    OutlinedButton.icon(
-                      onPressed: onReopen,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Reabrir'),
-                    ),
-                ],
+              const SizedBox(height: 2),
+              Text(
+                _firstName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.headlineMedium,
               ),
             ],
-          ),
+          );
+          final logo = Container(
+            width: compact ? 76 : 104,
+            height: compact ? 76 : 104,
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.86),
+              borderRadius: BorderRadius.circular(CheckTapRadius.lg),
+            ),
+            child: CheckTapLogo(width: compact ? 66 : 94),
+          );
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: <Widget>[
+                    Expanded(child: greeting),
+                    const SizedBox(width: CheckTapSpacing.sm),
+                    logo,
+                  ],
+                ),
+                const SizedBox(height: CheckTapSpacing.md),
+                _DepartmentSelector(
+                  departments: departments,
+                  selectedDepartmentId: selectedDepartmentId,
+                  onChanged: onDepartmentChanged,
+                  compact: true,
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    greeting,
+                    const SizedBox(height: CheckTapSpacing.md),
+                    _DepartmentSelector(
+                      departments: departments,
+                      selectedDepartmentId: selectedDepartmentId,
+                      onChanged: onDepartmentChanged,
+                      compact: true,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: CheckTapSpacing.md),
+              logo,
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PageWidthLimiter extends StatelessWidget {
+  const _PageWidthLimiter({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1180),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _DepartmentSelector extends StatelessWidget {
+  const _DepartmentSelector({
+    required this.departments,
+    required this.selectedDepartmentId,
+    required this.onChanged,
+    this.compact = false,
+  });
+
+  final List<DepartmentSummary> departments;
+  final String? selectedDepartmentId;
+  final ValueChanged<String?>? onChanged;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<String?>(
+      key: ValueKey<String?>(selectedDepartmentId),
+      initialValue: selectedDepartmentId,
+      isExpanded: true,
+      icon: const Icon(Icons.keyboard_arrow_down_rounded),
+      decoration: InputDecoration(
+        labelText: compact ? null : 'Departamento actual',
+        prefixIcon: const Icon(Icons.apartment_rounded),
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: CheckTapSpacing.sm,
+          vertical: compact ? 8 : 12,
         ),
       ),
-    );
-  }
-}
-
-class _SyncTag extends StatelessWidget {
-  const _SyncTag({required this.state});
-
-  final LocalSyncState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final (icon, label) = switch (state) {
-      LocalSyncState.synced => (Icons.cloud_done, 'Sincronizada'),
-      LocalSyncState.pending => (Icons.schedule, 'Pendiente'),
-      LocalSyncState.syncing => (Icons.sync, 'Sincronizando'),
-      LocalSyncState.error => (Icons.error_outline, 'Error'),
-      LocalSyncState.conflict => (Icons.warning_amber, 'Conflicto'),
-    };
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Icon(icon, size: 16),
-        const SizedBox(width: 4),
-        Text(label),
+      items: <DropdownMenuItem<String?>>[
+        const DropdownMenuItem<String?>(
+          value: null,
+          child: Text('Todos mis departamentos'),
+        ),
+        ...departments.map(
+          (department) => DropdownMenuItem<String?>(
+            value: department.id,
+            child: Text(
+              department.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
       ],
+      onChanged: onChanged,
     );
   }
 }
 
-class _Tag extends StatelessWidget {
-  const _Tag({required this.label});
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.label,
+    required this.value,
+    required this.selectedValue,
+    required this.onSelected,
+  });
 
   final String label;
+  final String value;
+  final String selectedValue;
+  final ValueChanged<String> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(999),
+    final selected = value == selectedValue;
+    return Padding(
+      padding: const EdgeInsets.only(right: CheckTapSpacing.xs),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        showCheckmark: false,
+        selectedColor: CheckTapColors.primary,
+        labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: selected ? Colors.white : CheckTapColors.text,
+        ),
+        onSelected: (_) => onSelected(value),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        child: Text(label, style: Theme.of(context).textTheme.labelMedium),
+    );
+  }
+}
+
+class _CompactInfoCard extends StatelessWidget {
+  const _CompactInfoCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(CheckTapSpacing.md),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(CheckTapRadius.md),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(icon, color: color),
+          const SizedBox(width: CheckTapSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 2),
+                Text(
+                  message,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: CheckTapColors.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

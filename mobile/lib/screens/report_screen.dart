@@ -6,6 +6,10 @@ import '../data/repositories/task_repository.dart';
 import '../models/daily_report.dart';
 import '../models/department.dart';
 import '../services/session_store.dart';
+import '../ui/components/empty_state.dart';
+import '../ui/components/section_header.dart';
+import '../ui/theme/checktap_colors.dart';
+import '../ui/theme/checktap_spacing.dart';
 
 class ReportScreen extends StatefulWidget {
   const ReportScreen({required this.session, super.key});
@@ -232,149 +236,352 @@ class _ReportScreenState extends State<ReportScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Informes por departamento'),
+        title: const Text('Informes'),
         actions: <Widget>[
           IconButton(
             tooltip: 'Actualizar',
             onPressed: _loadingList ? null : _loadInitial,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: _loadInitial,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(
+            CheckTapSpacing.md,
+            CheckTapSpacing.sm,
+            CheckTapSpacing.md,
+            40,
+          ),
           children: <Widget>[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
+            const SectionHeader(
+              title: 'Informes del equipo',
+              subtitle:
+                  'Consulta, descarga o comparte los resúmenes diarios por departamento.',
+            ),
+            const SizedBox(height: CheckTapSpacing.md),
+            Container(
+              padding: const EdgeInsets.all(CheckTapSpacing.lg),
+              decoration: BoxDecoration(
+                gradient: CheckTapColors.brandGradient,
+                borderRadius: BorderRadius.circular(CheckTapRadius.xl),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(
+                            CheckTapRadius.md,
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.picture_as_pdf_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: CheckTapSpacing.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              'Resumen diario automático',
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(color: Colors.white),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'El servidor genera un PDF por departamento y avisa a todos sus integrantes.',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.84),
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: CheckTapSpacing.lg),
+                  DropdownButtonFormField<String?>(
+                    key: ValueKey<String?>(_selectedDepartmentId),
+                    initialValue: _selectedDepartmentId,
+                    dropdownColor: Theme.of(context).colorScheme.surface,
+                    decoration: InputDecoration(
+                      labelText: 'Departamento',
+                      prefixIcon: const Icon(Icons.apartment_rounded),
+                      fillColor: Colors.white.withValues(alpha: 0.96),
+                    ),
+                    items: <DropdownMenuItem<String?>>[
+                      if (_activeDepartments.length > 1)
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('Todos los departamentos'),
+                        ),
+                      ..._activeDepartments.map(
+                        (department) => DropdownMenuItem<String?>(
+                          value: department.id,
+                          child: Text(department.name),
+                        ),
+                      ),
+                    ],
+                    onChanged: _loadingList ? null : _changeDepartment,
+                  ),
+                  const SizedBox(height: CheckTapSpacing.sm),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: BorderSide(
+                              color: Colors.white.withValues(alpha: 0.65),
+                            ),
+                          ),
+                          onPressed: _loading ? null : _selectDate,
+                          icon: const Icon(Icons.calendar_month_rounded),
+                          label: Text(_dayLabel(_date)),
+                        ),
+                      ),
+                      const SizedBox(width: CheckTapSpacing.sm),
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: CheckTapColors.primary,
+                          ),
+                          onPressed: _loading ? null : _generateNow,
+                          icon: _loading
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.auto_awesome_rounded),
+                          label: const Text('Generar ahora'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (_error != null) ...<Widget>[
+              const SizedBox(height: CheckTapSpacing.md),
+              Container(
+                padding: const EdgeInsets.all(CheckTapSpacing.sm),
+                decoration: BoxDecoration(
+                  color: CheckTapColors.danger.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(CheckTapRadius.md),
+                  border: Border.all(
+                    color: CheckTapColors.danger.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        const Icon(Icons.schedule_send),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Resumen diario automatico',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      color: CheckTapColors.danger,
+                    ),
+                    const SizedBox(width: CheckTapSpacing.xs),
+                    Expanded(
+                      child: Text(
+                        _error!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: CheckTapColors.danger,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'El servidor genera un PDF independiente por departamento y avisa a todos sus integrantes.',
-                    ),
-                    const SizedBox(height: 14),
-                    DropdownButtonFormField<String?>(
-                      key: ValueKey<String?>(_selectedDepartmentId),
-                      initialValue: _selectedDepartmentId,
-                      decoration: const InputDecoration(
-                        labelText: 'Departamento',
-                        prefixIcon: Icon(Icons.domain),
-                        border: OutlineInputBorder(),
                       ),
-                      items: <DropdownMenuItem<String?>>[
-                        if (_activeDepartments.length > 1)
-                          const DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('Todos los departamentos'),
-                          ),
-                        ..._activeDepartments.map(
-                          (department) => DropdownMenuItem<String?>(
-                            value: department.id,
-                            child: Text(department.name),
-                          ),
-                        ),
-                      ],
-                      onChanged: _loadingList ? null : _changeDepartment,
-                    ),
-                    const SizedBox(height: 14),
-                    OutlinedButton.icon(
-                      onPressed: _loading ? null : _selectDate,
-                      icon: const Icon(Icons.calendar_month),
-                      label: Text(_dayLabel(_date)),
-                    ),
-                    const SizedBox(height: 10),
-                    FilledButton.icon(
-                      onPressed: _loading ? null : _generateNow,
-                      icon: _loading
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.picture_as_pdf),
-                      label: const Text('Generar informe ahora'),
                     ),
                   ],
                 ),
               ),
-            ),
-            if (_error != null) ...<Widget>[
-              const SizedBox(height: 12),
-              Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
             ],
-            const SizedBox(height: 18),
-            Text(
-              'Informes disponibles',
-              style: Theme.of(context).textTheme.titleLarge,
+            const SizedBox(height: CheckTapSpacing.xl),
+            const SectionHeader(
+              title: 'Informes disponibles',
+              subtitle: 'Los más recientes aparecen primero.',
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: CheckTapSpacing.sm),
             if (_loadingList)
               const Center(
                 child: Padding(
-                  padding: EdgeInsets.all(24),
+                  padding: EdgeInsets.all(32),
                   child: CircularProgressIndicator(),
                 ),
               )
             else if (_reports.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text(
-                    'Todavia no hay informes para esta seleccion. El primero aparecera despues de la hora programada o al generarlo manualmente.',
-                  ),
-                ),
+              const CheckTapEmptyState(
+                icon: Icons.picture_as_pdf_outlined,
+                title: 'Todavía no hay informes',
+                message:
+                    'El primero aparecerá después de la hora programada o al generarlo manualmente.',
               )
             else
               ..._reports.map(
-                (report) => Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.picture_as_pdf),
-                    title: Text(
-                      '${report.department.name} · ${_dayLabel(report.reportDate)}',
-                    ),
-                    subtitle: Text(
-                      'Creadas ${report.createdCount} · '
-                      'Completadas ${report.completedCount} · '
-                      'Pendientes ${report.pendingCount} · '
-                      'En progreso ${report.inProgressCount}\n'
-                      '${_sizeLabel(report.fileSize)}',
-                    ),
-                    isThreeLine: true,
-                    trailing: Builder(
-                      builder: (buttonContext) => IconButton(
-                        tooltip: 'Descargar o compartir',
-                        onPressed: _loading
-                            ? null
-                            : () => _shareGenerated(report, buttonContext),
-                        icon: const Icon(Icons.download),
-                      ),
-                    ),
-                    onTap: _loading
-                        ? null
-                        : () => _shareGenerated(report, context),
+                (report) => Padding(
+                  padding: const EdgeInsets.only(bottom: CheckTapSpacing.sm),
+                  child: _ReportCard(
+                    report: report,
+                    dateLabel: _dayLabel(report.reportDate),
+                    sizeLabel: _sizeLabel(report.fileSize),
+                    loading: _loading,
+                    onShare: (buttonContext) =>
+                        _shareGenerated(report, buttonContext),
                   ),
                 ),
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReportCard extends StatelessWidget {
+  const _ReportCard({
+    required this.report,
+    required this.dateLabel,
+    required this.sizeLabel,
+    required this.loading,
+    required this.onShare,
+  });
+
+  final DailyReportItem report;
+  final String dateLabel;
+  final String sizeLabel;
+  final bool loading;
+  final void Function(BuildContext context) onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: loading ? null : () => onShare(context),
+        borderRadius: BorderRadius.circular(CheckTapRadius.lg),
+        child: Ink(
+          padding: const EdgeInsets.all(CheckTapSpacing.md),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(CheckTapRadius.lg),
+            border: Border.all(color: CheckTapColors.border),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: CheckTapColors.danger.withValues(alpha: 0.09),
+                  borderRadius: BorderRadius.circular(CheckTapRadius.md),
+                ),
+                child: const Icon(
+                  Icons.picture_as_pdf_rounded,
+                  color: CheckTapColors.danger,
+                ),
+              ),
+              const SizedBox(width: CheckTapSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      report.department.name,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      dateLabel,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: CheckTapColors.textMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        _ReportMetric(
+                          label: 'Creadas',
+                          value: report.createdCount,
+                          color: CheckTapColors.primary,
+                        ),
+                        _ReportMetric(
+                          label: 'Completadas',
+                          value: report.completedCount,
+                          color: CheckTapColors.success,
+                        ),
+                        _ReportMetric(
+                          label: 'Pendientes',
+                          value: report.pendingCount,
+                          color: CheckTapColors.warning,
+                        ),
+                        _ReportMetric(
+                          label: 'En curso',
+                          value: report.inProgressCount,
+                          color: CheckTapColors.info,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 9),
+                    Text(
+                      sizeLabel,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: CheckTapColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Builder(
+                builder: (buttonContext) => IconButton(
+                  tooltip: 'Descargar o compartir',
+                  onPressed: loading ? null : () => onShare(buttonContext),
+                  icon: const Icon(Icons.ios_share_rounded),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportMetric extends StatelessWidget {
+  const _ReportMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final int value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(CheckTapRadius.pill),
+      ),
+      child: Text(
+        '$label $value',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
       ),
     );
   }

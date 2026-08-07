@@ -89,3 +89,10 @@ class Task(Base):
         order_by="User.name",
     )
     completed_by: Mapped["User | None"] = relationship(foreign_keys=[completed_by_id])
+    checklists: Mapped[list["TaskChecklist"]] = relationship(
+        back_populates="task",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+        order_by="TaskChecklist.position",
+    )

@@ -25,7 +25,8 @@ class AppUser {
       email: json['email'] as String,
       isAdmin: json['is_admin'] as bool? ?? false,
       isActive: json['is_active'] as bool? ?? true,
-      departmentIds: rawDepartmentIds
+      departmentIds:
+          rawDepartmentIds
               ?.map((item) => item.toString())
               .toList(growable: false) ??
           const <String>[],

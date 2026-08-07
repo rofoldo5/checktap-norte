@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../firebase_options.dart';
+import '../ui/theme/checktap_colors.dart';
+import '../ui/theme/checktap_spacing.dart';
 import '../services/notification_service.dart';
 
 class NotificationValidationScreen extends StatefulWidget {
@@ -182,9 +184,9 @@ class _NotificationValidationScreenState
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   String _permissionLabel(AuthorizationStatus status) {
@@ -217,9 +219,9 @@ class _NotificationValidationScreenState
     final project = DefaultFirebaseOptions.currentPlatform;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Validar notificaciones')),
+      appBar: AppBar(title: const Text('Notificaciones')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: <Widget>[
           _StatusCard(
             title: 'Firebase de la aplicacion',
@@ -250,17 +252,13 @@ class _NotificationValidationScreenState
             children: <Widget>[
               _StatusRow(
                 label: 'Registro',
-                value:
-                    _service.backendRegistrationStatus.value ?? 'Pendiente',
+                value: _service.backendRegistrationStatus.value ?? 'Pendiente',
               ),
               _StatusRow(
                 label: 'Firebase',
                 value: _backendValue('initialized'),
               ),
-              _StatusRow(
-                label: 'Proyecto',
-                value: _backendValue('project_id'),
-              ),
+              _StatusRow(label: 'Proyecto', value: _backendValue('project_id')),
               _StatusRow(
                 label: 'Dispositivos',
                 value: _backendValue('active_registrations', fallback: '0'),
@@ -402,28 +400,46 @@ class _StatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Icon(icon),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+    return Container(
+      padding: const EdgeInsets.all(CheckTapSpacing.md),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(CheckTapRadius.lg),
+        border: Border.all(color: CheckTapColors.border),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: CheckTapColors.navy.withValues(alpha: 0.035),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: CheckTapColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(CheckTapRadius.sm),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ...children,
-          ],
-        ),
+                child: Icon(icon, color: CheckTapColors.primary, size: 21),
+              ),
+              const SizedBox(width: CheckTapSpacing.sm),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: CheckTapSpacing.md),
+          ...children,
+        ],
       ),
     );
   }
@@ -439,18 +455,33 @@ class _StatusRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
-            width: 110,
-            child: Text(
-              '$label:',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          Expanded(child: SelectableText(value)),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked =
+              constraints.maxWidth < 360 ||
+              MediaQuery.textScalerOf(context).scale(14) >= 19;
+          final labelWidget = Text(
+            '$label:',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          );
+          if (stacked) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                labelWidget,
+                const SizedBox(height: 2),
+                SelectableText(value),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              SizedBox(width: 110, child: labelWidget),
+              Expanded(child: SelectableText(value)),
+            ],
+          );
+        },
       ),
     );
   }

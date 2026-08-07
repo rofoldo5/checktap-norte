@@ -5,7 +5,8 @@ bool _isDepartmentMember(AppUser user, TaskItem task) {
   if (user.isAdmin) {
     return true;
   }
-  if (user.departmentIds.isEmpty || task.department.id == 'pending-department') {
+  if (user.departmentIds.isEmpty ||
+      task.department.id == 'pending-department') {
     // Compatibilidad temporal con cache 0.8.x hasta la primera sincronizacion.
     return task.createdBy.id == user.id || task.assignedTo?.id == user.id;
   }

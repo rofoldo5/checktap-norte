@@ -144,9 +144,11 @@ class OfflineCacheService {
             email: row['email'] as String,
             isAdmin: (row['is_admin'] as int? ?? 0) == 1,
             isActive: (row['is_active'] as int? ?? 1) == 1,
-            departmentIds: (jsonDecode(
-              row['department_ids_json'] as String? ?? '[]',
-            ) as List<dynamic>).map((item) => item.toString()).toList(),
+            departmentIds:
+                (jsonDecode(row['department_ids_json'] as String? ?? '[]')
+                        as List<dynamic>)
+                    .map((item) => item.toString())
+                    .toList(),
             createdAt: row['created_at'] == null
                 ? null
                 : DateTime.tryParse(row['created_at'] as String),

@@ -27,11 +27,7 @@ class DepartmentSummary {
     );
   }
 
-  DepartmentSummary copyWith({
-    String? name,
-    bool? isActive,
-    int? memberCount,
-  }) {
+  DepartmentSummary copyWith({String? name, bool? isActive, int? memberCount}) {
     return DepartmentSummary(
       id: id,
       name: name ?? this.name,
@@ -70,11 +66,11 @@ class DepartmentDetail {
   final DateTime updatedAt;
 
   DepartmentSummary get summary => DepartmentSummary(
-        id: id,
-        name: name,
-        isActive: isActive,
-        memberCount: memberCount,
-      );
+    id: id,
+    name: name,
+    isActive: isActive,
+    memberCount: memberCount,
+  );
 
   factory DepartmentDetail.fromJson(Map<String, dynamic> json) {
     final rawMembers = json['members'] as List<dynamic>? ?? const <dynamic>[];
@@ -85,9 +81,7 @@ class DepartmentDetail {
       memberCount: (json['member_count'] as num?)?.toInt() ?? rawMembers.length,
       members: rawMembers
           .map(
-            (item) => AppUser.fromJson(
-              Map<String, dynamic>.from(item as Map),
-            ),
+            (item) => AppUser.fromJson(Map<String, dynamic>.from(item as Map)),
           )
           .toList(growable: false),
       createdAt: DateTime.parse(json['created_at'].toString()),

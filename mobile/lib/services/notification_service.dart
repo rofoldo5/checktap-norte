@@ -87,6 +87,7 @@ class NotificationService {
   Future<bool>? _registrationFuture;
   DateTime? _lastRegistrationAt;
   bool _initialized = false;
+  Future<void>? _initializationFuture;
 
   bool get initialized => _initialized;
 
@@ -104,6 +105,23 @@ class NotificationService {
       return;
     }
 
+    final running = _initializationFuture;
+    if (running != null) {
+      return running;
+    }
+
+    final future = _initializeInternal();
+    _initializationFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_initializationFuture, future)) {
+        _initializationFuture = null;
+      }
+    }
+  }
+
+  Future<void> _initializeInternal() async {
     try {
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp(
@@ -199,6 +217,46 @@ class NotificationService {
       debugPrint('[FCM] Inicializacion no disponible: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
+  }
+
+  Future<NotificationActivationResult> requestPermissionOnLoginEntry() async {
+    await initialize();
+
+    if (!_initialized) {
+      throw StateError(
+        initializationError.value ?? 'Firebase no pudo inicializarse.',
+      );
+    }
+
+    final currentSettings = await FirebaseMessaging.instance
+        .getNotificationSettings();
+    authorizationStatus.value = currentSettings.authorizationStatus;
+
+    if (currentSettings.authorizationStatus ==
+        AuthorizationStatus.notDetermined) {
+      debugPrint(
+        '[FCM] Login visible: solicitando permiso del sistema para notificaciones.',
+      );
+      return requestPermissionAndToken();
+    }
+
+    String? currentToken = token.value;
+    if (_isAuthorized(currentSettings.authorizationStatus) &&
+        (currentToken == null || currentToken.isEmpty)) {
+      try {
+        currentToken = await refreshToken();
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[FCM] Permiso ya concedido, pero el token no estuvo disponible: $error',
+        );
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }
+
+    return NotificationActivationResult(
+      authorizationStatus: currentSettings.authorizationStatus,
+      token: currentToken,
+    );
   }
 
   Future<NotificationActivationResult> requestPermissionAndToken() async {
@@ -429,6 +487,22 @@ class NotificationService {
   }
 
   Future<String?> refreshToken() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      String? apnsToken;
+      for (var attempt = 0; attempt < 8; attempt += 1) {
+        apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+        if (apnsToken != null && apnsToken.isNotEmpty) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      if (apnsToken == null || apnsToken.isEmpty) {
+        debugPrint('[FCM] APNs aun no entrego token; se reintentara al renovarse.');
+        token.value = null;
+        return null;
+      }
+    }
+
     final currentToken = await FirebaseMessaging.instance.getToken();
     token.value = currentToken;
     debugPrint('[FCM] Token actual: ${maskToken(currentToken)}');

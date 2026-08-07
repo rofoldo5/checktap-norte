@@ -1,5 +1,6 @@
 import 'app_user.dart';
 import 'department.dart';
+import 'task_checklist.dart';
 
 const Object _unset = Object();
 
@@ -36,6 +37,7 @@ class TaskItem {
     this.assignedTo,
     this.completedBy,
     this.completedAt,
+    this.checklists = const <TaskChecklist>[],
     this.syncState = LocalSyncState.synced,
     this.syncError,
   });
@@ -54,6 +56,7 @@ class TaskItem {
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? completedAt;
+  final List<TaskChecklist> checklists;
   final LocalSyncState syncState;
   final String? syncError;
 
@@ -90,6 +93,22 @@ class TaskItem {
             )
             .toList(growable: false) ??
         <AppUser>[?assignedTo];
+    final rawChecklists =
+        json['checklists'] as List<dynamic>? ?? const <dynamic>[];
+    final checklists =
+        rawChecklists
+            .map(
+              (item) => TaskChecklist.fromJson(
+                Map<String, dynamic>.from(item as Map),
+              ),
+            )
+            .toList(growable: false)
+          ..sort((a, b) {
+            final position = a.position.compareTo(b.position);
+            return position != 0
+                ? position
+                : a.createdAt.compareTo(b.createdAt);
+          });
     return TaskItem(
       id: json['id'].toString(),
       title: json['title'] as String,
@@ -119,6 +138,7 @@ class TaskItem {
       completedAt: json['completed_at'] == null
           ? null
           : DateTime.parse(json['completed_at'] as String),
+      checklists: checklists,
       syncState: syncState,
       syncError: syncError,
     );
@@ -138,6 +158,7 @@ class TaskItem {
     DateTime? createdAt,
     DateTime? updatedAt,
     Object? completedAt = _unset,
+    List<TaskChecklist>? checklists,
     LocalSyncState? syncState,
     Object? syncError = _unset,
   }) {
@@ -165,6 +186,7 @@ class TaskItem {
       completedAt: identical(completedAt, _unset)
           ? this.completedAt
           : completedAt as DateTime?,
+      checklists: checklists ?? this.checklists,
       syncState: syncState ?? this.syncState,
       syncError: identical(syncError, _unset)
           ? this.syncError
@@ -188,6 +210,9 @@ class TaskItem {
       'created_at': createdAt.toUtc().toIso8601String(),
       'updated_at': updatedAt.toUtc().toIso8601String(),
       'completed_at': completedAt?.toUtc().toIso8601String(),
+      'checklists': checklists
+          .map((checklist) => checklist.toJson())
+          .toList(growable: false),
     };
   }
 }

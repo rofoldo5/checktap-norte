@@ -108,6 +108,17 @@ class SyncQueueStore {
     );
   }
 
+  Future<bool> hasFollowingOperations(String entityId, int afterLocalId) async {
+    final database = await _localDatabase.database;
+    final rows = await database.rawQuery(
+      'SELECT COUNT(*) AS total FROM sync_queue '
+      'WHERE entity_id = ? AND id > ? '
+      "AND state IN ('PENDING', 'SYNCING', 'ERROR')",
+      <Object?>[entityId, afterLocalId],
+    );
+    return (Sqflite.firstIntValue(rows) ?? 0) > 0;
+  }
+
   Future<bool> updatePendingCreatePayload(
     String entityId,
     Map<String, dynamic> payload,

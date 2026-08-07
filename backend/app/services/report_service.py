@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.config import settings
+from app.models.checklist import TaskChecklist, TaskChecklistItem
 from app.models.daily_report import DailyReport
 from app.models.department import Department
 from app.models.task import Task
@@ -33,6 +34,10 @@ def _task_query():
         joinedload(Task.created_by),
         joinedload(Task.completed_by),
         selectinload(Task.assignees),
+        selectinload(Task.checklists).joinedload(TaskChecklist.created_by),
+        selectinload(Task.checklists)
+        .selectinload(TaskChecklist.items)
+        .joinedload(TaskChecklistItem.completed_by),
     )
 
 
@@ -162,6 +167,35 @@ def daily_report_pdf(
             if task.completed_by is not None:
                 canvas.drawString(75, y, f"Completada por: {task.completed_by.name}")
                 y -= 11
+            for checklist in task.checklists:
+                ensure_space(4 + len(checklist.items))
+                canvas.setFont("Helvetica-Bold", 8.5)
+                progress = f"{checklist.completed_count}/{checklist.item_count}"
+                y = _write_wrapped(
+                    canvas,
+                    f"Checklist: {checklist.title} ({progress})",
+                    x=75,
+                    y=y,
+                    width_chars=78,
+                    line_height=10,
+                )
+                canvas.setFont("Helvetica", 8)
+                for item in checklist.items:
+                    marker = "[x]" if item.is_completed else "[ ]"
+                    actor = (
+                        f" - {item.completed_by.name}"
+                        if item.completed_by is not None
+                        else ""
+                    )
+                    y = _write_wrapped(
+                        canvas,
+                        f"{marker} {item.title}{actor}",
+                        x=88,
+                        y=y,
+                        width_chars=74,
+                        line_height=10,
+                    )
+                y -= 3
             y -= 7
 
     canvas.setTitle(f"Informe {department.name} {report_date.isoformat()}")
