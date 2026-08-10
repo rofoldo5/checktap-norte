@@ -278,3 +278,49 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+key.properties
+firebase-service-account.json
+**/firebase-service-account.json
+
+# Local/generated
+.venv/
+**/.venv/
+.dart_tool/
+**/.dart_tool/
+build/
+**/build/
+__pycache__/
+**/__pycache__/
+
+# Local backups
+*.backup
+*.backup.*
+.checktap_*_backup
+.checktap_*_last_backup
+# CheckTap local backups
+**/.backups/
+**/.checktap_*_backup
+**/.checktap_*_last_backup
+**/*.backup_*
+**/*.backup.*
+
+# Python local environments
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+
+# Flutter generated
+**/.dart_tool/
+**/build/
+**/.gradle/
+mobile/android/app/google-services.json
