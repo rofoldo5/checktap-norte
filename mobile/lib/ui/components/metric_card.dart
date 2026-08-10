@@ -21,6 +21,9 @@ class MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = CheckTapColors.adaptAccent(context, color);
+    final dark = CheckTapColors.isDark(context);
+
     return Semantics(
       button: onTap != null,
       label: '$label: $value',
@@ -32,13 +35,15 @@ class MetricCard extends StatelessWidget {
           child: Ink(
             padding: const EdgeInsets.all(CheckTapSpacing.md),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
+              gradient: CheckTapColors.metricGradientFor(context, color),
               borderRadius: BorderRadius.circular(CheckTapRadius.lg),
-              border: Border.all(color: color.withValues(alpha: 0.16)),
+              border: Border.all(
+                color: accent.withValues(alpha: dark ? 0.28 : 0.16),
+              ),
               boxShadow: <BoxShadow>[
                 BoxShadow(
-                  color: CheckTapColors.navy.withValues(alpha: 0.045),
-                  blurRadius: 20,
+                  color: CheckTapColors.shadowFor(context),
+                  blurRadius: dark ? 24 : 20,
                   offset: const Offset(0, 8),
                 ),
               ],
@@ -49,45 +54,35 @@ class MetricCard extends StatelessWidget {
                 Row(
                   children: <Widget>[
                     Container(
-                      width: 34,
-                      height: 34,
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.1),
+                        color: accent.withValues(alpha: dark ? 0.13 : 0.10),
                         borderRadius: BorderRadius.circular(CheckTapRadius.sm),
+                        border: dark
+                            ? Border.all(color: accent.withValues(alpha: 0.12))
+                            : null,
                       ),
-                      child: Icon(icon, color: color, size: 19),
+                      child: Icon(icon, color: accent, size: 19),
                     ),
                     const Spacer(),
                     if (onTap != null)
                       Icon(
                         Icons.arrow_forward_ios_rounded,
                         size: 13,
-                        color: color,
+                        color: accent,
                       ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                AnimatedSwitcher(
-                  duration: MediaQuery.disableAnimationsOf(context)
-                      ? Duration.zero
-                      : const Duration(milliseconds: 200),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: ScaleTransition(
-                      scale: Tween<double>(
-                        begin: 0.96,
-                        end: 1,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  ),
-                  child: Text(
-                    '$value',
-                    key: ValueKey<int>(value),
+                TweenAnimationBuilder<int>(
+                  tween: IntTween(begin: 0, end: value),
+                  duration: const Duration(milliseconds: 480),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, animatedValue, _) => Text(
+                    '$animatedValue',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: color,
+                      color: accent,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -95,10 +90,10 @@ class MetricCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   label,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: CheckTapColors.textMuted,
+                    color: CheckTapColors.textMutedFor(context),
                     fontWeight: FontWeight.w700,
                   ),
                 ),

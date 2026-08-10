@@ -15,6 +15,29 @@ void main() {
     expect(theme.navigationBarTheme.height, 72);
   });
 
+  test('tema oscuro usa superficies y contraste premium CheckTap', () {
+    final theme = CheckTapTheme.dark;
+
+    expect(theme.useMaterial3, isTrue);
+    expect(theme.brightness, Brightness.dark);
+    expect(theme.scaffoldBackgroundColor, CheckTapColors.darkBackground);
+    expect(theme.colorScheme.surface, CheckTapColors.darkSurface);
+    expect(theme.colorScheme.primary, CheckTapColors.darkPrimary);
+    expect(theme.colorScheme.onSurface, CheckTapColors.darkText);
+    expect(
+      theme.navigationBarTheme.backgroundColor,
+      CheckTapColors.darkSurface,
+    );
+    expect(
+      theme.navigationBarTheme.indicatorColor,
+      CheckTapColors.darkSurfaceElevated,
+    );
+    expect(
+      theme.inputDecorationTheme.fillColor,
+      CheckTapColors.darkSurfaceSoft,
+    );
+  });
+
   testWidgets('acciones principales conservan área táctil suficiente', (
     tester,
   ) async {

@@ -33,10 +33,16 @@ class CheckTapEmptyState extends StatelessWidget {
                 width: 78,
                 height: 78,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEAF2FF),
+                  color: CheckTapColors.isDark(context)
+                      ? CheckTapColors.darkSurfaceElevated
+                      : const Color(0xFFEAF2FF),
                   borderRadius: BorderRadius.circular(28),
                 ),
-                child: Icon(icon, color: CheckTapColors.primary, size: 38),
+                child: Icon(
+                  icon,
+                  color: CheckTapColors.primaryFor(context),
+                  size: 38,
+                ),
               ),
               const SizedBox(height: CheckTapSpacing.lg),
               Text(
@@ -49,7 +55,7 @@ class CheckTapEmptyState extends StatelessWidget {
                 message,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: CheckTapColors.textMuted,
+                  color: CheckTapColors.textMutedFor(context),
                 ),
               ),
               if (actionLabel != null && onAction != null) ...<Widget>[

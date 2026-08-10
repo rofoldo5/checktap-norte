@@ -55,8 +55,12 @@ class UserAvatar extends StatelessWidget {
           children: <Widget>[
             CircleAvatar(
               radius: radius,
-              backgroundColor: backgroundColor ?? const Color(0xFFE8F0FF),
-              foregroundColor: CheckTapColors.primary,
+              backgroundColor:
+                  backgroundColor ??
+                  (CheckTapColors.isDark(context)
+                      ? CheckTapColors.darkSurfaceElevated
+                      : const Color(0xFFE8F0FF)),
+              foregroundColor: CheckTapColors.primaryFor(context),
               child: Text(
                 _initials,
                 style: TextStyle(
@@ -151,7 +155,9 @@ class UserAvatarStack extends StatelessWidget {
               left: visible.length * (avatarSize - overlap),
               child: CircleAvatar(
                 radius: radius,
-                backgroundColor: CheckTapColors.navy,
+                backgroundColor: CheckTapColors.isDark(context)
+                    ? CheckTapColors.darkSurfaceElevated
+                    : CheckTapColors.navy,
                 foregroundColor: Colors.white,
                 child: Text(
                   '+$overflow',

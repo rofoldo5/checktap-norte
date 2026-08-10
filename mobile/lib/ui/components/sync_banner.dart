@@ -71,7 +71,7 @@ class SyncBanner extends StatelessWidget {
                   Text(
                     detail,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: CheckTapColors.textMuted,
+                      color: CheckTapColors.textMutedFor(context),
                     ),
                   ),
                 ],

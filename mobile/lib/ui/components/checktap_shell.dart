@@ -31,7 +31,6 @@ class CheckTapTopBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 360;
     return AppBar(
       toolbarHeight: 68,
       leadingWidth: 64,
@@ -63,15 +62,13 @@ class CheckTapTopBar extends StatelessWidget implements PreferredSizeWidget {
                 )
               : const Icon(Icons.sync_rounded),
         ),
-        if (!compact)
-          Tooltip(
-            message: connectionTooltip,
-            child: Padding(
-              padding: const EdgeInsets.only(right: CheckTapSpacing.md),
-              child: Icon(connectionIcon),
-            ),
+        Tooltip(
+          message: connectionTooltip,
+          child: Padding(
+            padding: const EdgeInsets.only(right: CheckTapSpacing.md),
+            child: Icon(connectionIcon),
           ),
-        if (compact) const SizedBox(width: CheckTapSpacing.xs),
+        ),
       ],
     );
   }
@@ -173,7 +170,7 @@ class CheckTapDrawer extends StatelessWidget {
                         ),
                       ),
                       const Spacer(),
-                      const CheckTapWordmark(fontSize: 15, inverse: true),
+                      const CheckTapWordmark(fontSize: 15),
                     ],
                   ),
                 ],
@@ -285,7 +282,7 @@ class _DrawerItem extends StatelessWidget {
     return ListTile(
       minTileHeight: 52,
       contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      leading: Icon(icon, color: CheckTapColors.textMuted),
+      leading: Icon(icon, color: CheckTapColors.textMutedFor(context)),
       title: Text(label, style: Theme.of(context).textTheme.bodyMedium),
       trailing: trailing,
       onTap: onTap,

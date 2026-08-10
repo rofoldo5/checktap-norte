@@ -31,7 +31,7 @@ class SectionHeader extends StatelessWidget {
                 Text(
                   subtitle!,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: CheckTapColors.textMuted,
+                    color: CheckTapColors.textMutedFor(context),
                   ),
                 ),
               ],

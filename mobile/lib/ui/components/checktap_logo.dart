@@ -24,7 +24,7 @@ class CheckTapLogo extends StatelessWidget {
         cacheWidth: cacheWidth,
         fit: BoxFit.contain,
         filterQuality: FilterQuality.high,
-        errorBuilder: (_, _, _) => const _FallbackMark(),
+        errorBuilder: (_, __, ___) => const _FallbackMark(),
       ),
     );
   }
@@ -34,13 +34,11 @@ class CheckTapWordmark extends StatelessWidget {
   const CheckTapWordmark({
     this.fontSize = 20,
     this.centered = false,
-    this.inverse = false,
     super.key,
   });
 
   final double fontSize;
   final bool centered;
-  final bool inverse;
 
   @override
   Widget build(BuildContext context) {
@@ -58,14 +56,16 @@ class CheckTapWordmark extends StatelessWidget {
             TextSpan(
               text: 'CHECK',
               style: style?.copyWith(
-                color: inverse ? Colors.white : CheckTapColors.primary,
+                color: CheckTapColors.isDark(context)
+                    ? CheckTapColors.darkText
+                    : CheckTapColors.primary,
               ),
             ),
             TextSpan(
               text: 'TAP',
               style: style?.copyWith(
-                color: inverse
-                    ? Colors.white.withValues(alpha: 0.82)
+                color: CheckTapColors.isDark(context)
+                    ? CheckTapColors.darkCyan
                     : CheckTapColors.teal,
               ),
             ),

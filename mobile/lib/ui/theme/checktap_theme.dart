@@ -209,65 +209,225 @@ abstract final class CheckTapTheme {
   }
 
   static ThemeData get dark {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: CheckTapColors.cyan,
-      brightness: Brightness.dark,
-      primary: const Color(0xFF8BB6FF),
-      secondary: const Color(0xFF66D8FF),
-      tertiary: const Color(0xFF5CE0B3),
-      surface: const Color(0xFF152038),
-      error: const Color(0xFFFF8585),
-    );
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: CheckTapColors.darkCyan,
+          brightness: Brightness.dark,
+          primary: CheckTapColors.darkPrimary,
+          secondary: CheckTapColors.darkCyan,
+          tertiary: CheckTapColors.darkTeal,
+          surface: CheckTapColors.darkSurface,
+          error: CheckTapColors.darkDanger,
+        ).copyWith(
+          onPrimary: Colors.white,
+          onSecondary: CheckTapColors.darkBackground,
+          onTertiary: CheckTapColors.darkBackground,
+          onSurface: CheckTapColors.darkText,
+          outline: CheckTapColors.darkBorderStrong,
+          outlineVariant: CheckTapColors.darkBorder,
+        );
 
     final base = ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: scheme,
-      scaffoldBackgroundColor: const Color(0xFF0E1628),
+      scaffoldBackgroundColor: CheckTapColors.darkBackground,
       visualDensity: VisualDensity.standard,
+      splashFactory: InkSparkle.splashFactory,
     );
 
     return base.copyWith(
-      textTheme: _textTheme(base.textTheme),
+      textTheme: _textTheme(base.textTheme).apply(
+        bodyColor: CheckTapColors.darkText,
+        displayColor: CheckTapColors.darkText,
+      ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
+        foregroundColor: CheckTapColors.darkText,
         elevation: 0,
         scrolledUnderElevation: 0,
+        centerTitle: false,
         surfaceTintColor: Colors.transparent,
+        iconTheme: IconThemeData(color: CheckTapColors.darkText),
+        actionsIconTheme: IconThemeData(color: CheckTapColors.darkText),
       ),
       cardTheme: CardThemeData(
-        color: const Color(0xFF152038),
+        color: CheckTapColors.darkSurface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(CheckTapRadius.lg),
-          side: const BorderSide(color: Color(0xFF273550)),
+          side: const BorderSide(color: CheckTapColors.darkBorder),
         ),
+      ),
+      dividerTheme: const DividerThemeData(
+        color: CheckTapColors.darkBorder,
+        thickness: 1,
+        space: 1,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: const Color(0xFF111C31),
+        fillColor: CheckTapColors.darkSurfaceSoft,
+        labelStyle: const TextStyle(color: CheckTapColors.darkTextMuted),
+        hintStyle: const TextStyle(color: CheckTapColors.darkTextMuted),
+        helperStyle: const TextStyle(color: CheckTapColors.darkTextMuted),
+        prefixIconColor: CheckTapColors.darkTextMuted,
+        suffixIconColor: CheckTapColors.darkTextMuted,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: CheckTapSpacing.md,
+          vertical: 15,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(CheckTapRadius.md),
-          borderSide: const BorderSide(color: Color(0xFF2A3852)),
+          borderSide: const BorderSide(color: CheckTapColors.darkBorderStrong),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(CheckTapRadius.md),
-          borderSide: const BorderSide(color: Color(0xFF2A3852)),
+          borderSide: const BorderSide(color: CheckTapColors.darkBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(CheckTapRadius.md),
-          borderSide: BorderSide(color: scheme.primary, width: 1.6),
+          borderSide: const BorderSide(
+            color: CheckTapColors.darkCyan,
+            width: 1.6,
+          ),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(CheckTapRadius.md),
+          borderSide: const BorderSide(color: CheckTapColors.darkDanger),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(CheckTapRadius.md),
+          borderSide: const BorderSide(
+            color: CheckTapColors.darkDanger,
+            width: 1.6,
+          ),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(48, 52),
+          padding: const EdgeInsets.symmetric(
+            horizontal: CheckTapSpacing.lg,
+            vertical: CheckTapSpacing.sm,
+          ),
+          backgroundColor: CheckTapColors.darkPrimary,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: CheckTapColors.darkBorderStrong,
+          disabledForegroundColor: CheckTapColors.darkTextMuted,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(CheckTapRadius.md),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(48, 50),
+          foregroundColor: CheckTapColors.darkCyan,
+          side: const BorderSide(color: CheckTapColors.darkBorderStrong),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(CheckTapRadius.md),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: CheckTapColors.darkCyan,
+          minimumSize: const Size(48, 48),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: CheckTapColors.darkCyan,
+        foregroundColor: CheckTapColors.darkBackground,
+        elevation: 6,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(18)),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: const Color(0xFF152038),
-        indicatorColor: const Color(0xFF263A61),
+        height: 72,
+        backgroundColor: CheckTapColors.darkSurface,
         surfaceTintColor: Colors.transparent,
-        labelTextStyle: WidgetStateProperty.all(
-          const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+        indicatorColor: CheckTapColors.darkSurfaceElevated,
+        elevation: 0,
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
+          return TextStyle(
+            color: selected
+                ? CheckTapColors.darkCyan
+                : CheckTapColors.darkTextMuted,
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+          );
+        }),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
+          return IconThemeData(
+            color: selected
+                ? CheckTapColors.darkCyan
+                : CheckTapColors.darkTextMuted,
+            size: 23,
+          );
+        }),
+      ),
+      navigationRailTheme: const NavigationRailThemeData(
+        backgroundColor: CheckTapColors.darkSurface,
+        indicatorColor: CheckTapColors.darkSurfaceElevated,
+        selectedIconTheme: IconThemeData(color: CheckTapColors.darkCyan),
+        unselectedIconTheme: IconThemeData(color: CheckTapColors.darkTextMuted),
+        selectedLabelTextStyle: TextStyle(
+          color: CheckTapColors.darkCyan,
+          fontWeight: FontWeight.w700,
         ),
+        unselectedLabelTextStyle: TextStyle(
+          color: CheckTapColors.darkTextMuted,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: CheckTapColors.darkSurface,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(CheckTapRadius.xl),
+          side: const BorderSide(color: CheckTapColors.darkBorder),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: CheckTapColors.darkSurfaceElevated,
+        contentTextStyle: const TextStyle(color: CheckTapColors.darkText),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(CheckTapRadius.md),
+          side: const BorderSide(color: CheckTapColors.darkBorder),
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: CheckTapColors.darkSurface,
+        selectedColor: CheckTapColors.darkSurfaceElevated,
+        disabledColor: CheckTapColors.darkSurfaceSoft,
+        side: const BorderSide(color: CheckTapColors.darkBorder),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(CheckTapRadius.pill),
+        ),
+        labelStyle: const TextStyle(
+          color: CheckTapColors.darkText,
+          fontWeight: FontWeight.w600,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: CheckTapColors.darkCyan,
+        linearTrackColor: CheckTapColors.darkBorder,
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: CheckTapColors.darkSurface,
+        surfaceTintColor: Colors.transparent,
+        showDragHandle: true,
       ),
     );
   }

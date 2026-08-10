@@ -36,7 +36,7 @@ class ActivityTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(CheckTapRadius.md),
-        border: Border.all(color: CheckTapColors.border),
+        border: Border.all(color: CheckTapColors.borderFor(context)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -69,7 +69,7 @@ class ActivityTile extends StatelessWidget {
                 Text(
                   _relativeTime(activity.at),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: CheckTapColors.textMuted,
+                    color: CheckTapColors.textMutedFor(context),
                   ),
                 ),
               ],

@@ -218,10 +218,7 @@ class _TitleAndPriority extends StatelessWidget {
 }
 
 class _DepartmentAndStatus extends StatelessWidget {
-  const _DepartmentAndStatus({
-    required this.department,
-    required this.status,
-  });
+  const _DepartmentAndStatus({required this.department, required this.status});
 
   final String department;
   final String status;
@@ -246,9 +243,9 @@ class _DepartmentAndStatus extends StatelessWidget {
                 department,
                 maxLines: stackDetails ? 2 : 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: CheckTapColors.textMuted),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: CheckTapColors.textMuted,
+                ),
               ),
             ),
           ],
@@ -279,10 +276,7 @@ class _DepartmentAndStatus extends StatelessWidget {
 }
 
 class _AssigneesAndSync extends StatelessWidget {
-  const _AssigneesAndSync({
-    required this.assignees,
-    required this.syncState,
-  });
+  const _AssigneesAndSync({required this.assignees, required this.syncState});
 
   final List<AppUser> assignees;
   final LocalSyncState syncState;
@@ -435,9 +429,7 @@ class _Actions extends StatelessWidget {
             TextButton(
               onPressed: onOpen,
               child: _ActionButtonLabel(
-                icon: canEdit
-                    ? Icons.edit_outlined
-                    : Icons.visibility_outlined,
+                icon: canEdit ? Icons.edit_outlined : Icons.visibility_outlined,
                 label: canEdit ? 'Ver y editar' : 'Ver detalle',
               ),
             ),
