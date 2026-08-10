@@ -1,7 +1,17 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+AccountStatus = Literal["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]
 
 
 class UserCreate(BaseModel):
@@ -72,6 +82,7 @@ class UserSummary(BaseModel):
     email: EmailStr
     is_admin: bool = False
     is_active: bool = True
+    account_status: AccountStatus = "APPROVED"
     department_ids: list[UUID] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -79,3 +90,23 @@ class UserSummary(BaseModel):
 
 class UserRead(UserSummary):
     created_at: datetime
+    reviewed_at: datetime | None = None
+    reviewed_by_id: UUID | None = None
+    review_note: str | None = None
+
+
+class UserApproval(BaseModel):
+    department_ids: list[UUID] = Field(min_length=1, max_length=50)
+    is_admin: bool = False
+
+
+class UserRejection(BaseModel):
+    reason: str | None = Field(default=None, max_length=300)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        return normalized or None

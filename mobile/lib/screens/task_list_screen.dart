@@ -17,6 +17,7 @@ import '../widgets/task_form_dialog.dart';
 import '../features/dashboard/domain/dashboard_snapshot.dart';
 import '../features/dashboard/presentation/widgets/activity_tile.dart';
 import '../ui/components/checktap_logo.dart';
+import '../ui/components/developer_credit.dart';
 import '../ui/components/checktap_shell.dart';
 import '../ui/components/empty_state.dart';
 import '../ui/components/metric_card.dart';
@@ -27,6 +28,7 @@ import '../ui/components/task_card.dart';
 import '../ui/theme/checktap_colors.dart';
 import '../ui/theme/checktap_spacing.dart';
 import 'department_management_screen.dart';
+import 'access_requests_screen.dart';
 import 'notification_validation_screen.dart';
 import 'report_screen.dart';
 import 'task_detail_screen.dart';
@@ -424,6 +426,17 @@ class _TaskListScreenState extends State<TaskListScreen>
     }
   }
 
+  Future<void> _openAccessRequests() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => AccessRequestsScreen(session: widget.session),
+      ),
+    );
+    if (mounted) {
+      unawaited(_synchronizeAndRefresh(showLoader: false));
+    }
+  }
+
   Future<void> _openDepartments() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -561,6 +574,7 @@ class _TaskListScreenState extends State<TaskListScreen>
         user: widget.session.user!,
         isAdmin: widget.session.user!.isAdmin,
         pendingOperations: _pendingOperations,
+        onAccessRequests: () => _closeDrawerThen(_openAccessRequests),
         onUsers: () => _closeDrawerThen(_openUsers),
         onDepartments: () => _closeDrawerThen(_openDepartments),
         onReports: () => _closeDrawerThen(_openReports),
@@ -729,6 +743,11 @@ class _TaskListScreenState extends State<TaskListScreen>
             departments: _activeDepartments,
             selectedDepartmentId: _selectedDepartmentId,
             onDepartmentChanged: _loading ? null : _changeDepartment,
+          ),
+          const SizedBox(height: CheckTapSpacing.sm),
+          const DeveloperCredit(
+            key: ValueKey<String>('dashboard-developer-credit'),
+            alignment: TextAlign.start,
           ),
           const SizedBox(height: CheckTapSpacing.lg),
           LayoutBuilder(
@@ -1085,9 +1104,9 @@ class _DashboardHero extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(CheckTapSpacing.lg),
       decoration: BoxDecoration(
-        gradient: CheckTapColors.quietGradient,
+        gradient: CheckTapColors.quietGradientFor(context),
         borderRadius: BorderRadius.circular(CheckTapRadius.xl),
-        border: Border.all(color: CheckTapColors.border),
+        border: Border.all(color: CheckTapColors.borderFor(context)),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -1099,7 +1118,7 @@ class _DashboardHero extends StatelessWidget {
               Text(
                 '¡Buenos días!',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: CheckTapColors.textMuted,
+                  color: CheckTapColors.textMutedFor(context),
                 ),
               ),
               const SizedBox(height: 2),
@@ -1116,7 +1135,7 @@ class _DashboardHero extends StatelessWidget {
             height: compact ? 76 : 104,
             padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.86),
+              color: CheckTapColors.logoTileFor(context),
               borderRadius: BorderRadius.circular(CheckTapRadius.lg),
             ),
             child: CheckTapLogo(width: compact ? 66 : 94),

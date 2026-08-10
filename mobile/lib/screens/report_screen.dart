@@ -265,7 +265,7 @@ class _ReportScreenState extends State<ReportScreen> {
             Container(
               padding: const EdgeInsets.all(CheckTapSpacing.lg),
               decoration: BoxDecoration(
-                gradient: CheckTapColors.brandGradient,
+                gradient: CheckTapColors.panelGradientFor(context),
                 borderRadius: BorderRadius.circular(CheckTapRadius.xl),
               ),
               child: Column(
@@ -277,14 +277,14 @@ class _ReportScreenState extends State<ReportScreen> {
                         width: 48,
                         height: 48,
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
+                          color: CheckTapColors.panelIconTileFor(context),
                           borderRadius: BorderRadius.circular(
                             CheckTapRadius.md,
                           ),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.picture_as_pdf_rounded,
-                          color: Colors.white,
+                          color: CheckTapColors.panelAccentFor(context),
                         ),
                       ),
                       const SizedBox(width: CheckTapSpacing.md),
@@ -295,14 +295,18 @@ class _ReportScreenState extends State<ReportScreen> {
                             Text(
                               'Resumen diario automático',
                               style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(color: Colors.white),
+                                  ?.copyWith(
+                                    color: CheckTapColors.panelTextFor(context),
+                                  ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               'El servidor genera un PDF por departamento y avisa a todos sus integrantes.',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
-                                    color: Colors.white.withValues(alpha: 0.84),
+                                    color: CheckTapColors.panelMutedTextFor(
+                                      context,
+                                    ),
                                   ),
                             ),
                           ],
@@ -318,7 +322,7 @@ class _ReportScreenState extends State<ReportScreen> {
                     decoration: InputDecoration(
                       labelText: 'Departamento',
                       prefixIcon: const Icon(Icons.apartment_rounded),
-                      fillColor: Colors.white.withValues(alpha: 0.96),
+                      fillColor: CheckTapColors.panelControlFillFor(context),
                     ),
                     items: <DropdownMenuItem<String?>>[
                       if (_activeDepartments.length > 1)
@@ -341,9 +345,13 @@ class _ReportScreenState extends State<ReportScreen> {
                       Expanded(
                         child: OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
+                            foregroundColor: CheckTapColors.panelAccentFor(
+                              context,
+                            ),
                             side: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.65),
+                              color: CheckTapColors.panelControlBorderFor(
+                                context,
+                              ),
                             ),
                           ),
                           onPressed: _loading ? null : _selectDate,
@@ -356,8 +364,12 @@ class _ReportScreenState extends State<ReportScreen> {
                         flex: 2,
                         child: FilledButton.icon(
                           style: FilledButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: CheckTapColors.primary,
+                            backgroundColor: CheckTapColors.isDark(context)
+                                ? CheckTapColors.primaryFor(context)
+                                : Colors.white,
+                            foregroundColor: CheckTapColors.isDark(context)
+                                ? Colors.white
+                                : CheckTapColors.primary,
                           ),
                           onPressed: _loading ? null : _generateNow,
                           icon: _loading
@@ -475,7 +487,7 @@ class _ReportCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(CheckTapRadius.lg),
-            border: Border.all(color: CheckTapColors.border),
+            border: Border.all(color: CheckTapColors.borderFor(context)),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -505,7 +517,7 @@ class _ReportCard extends StatelessWidget {
                     Text(
                       dateLabel,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: CheckTapColors.textMuted,
+                        color: CheckTapColors.textMutedFor(context),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -539,7 +551,7 @@ class _ReportCard extends StatelessWidget {
                     Text(
                       sizeLabel,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: CheckTapColors.textMuted,
+                        color: CheckTapColors.textMutedFor(context),
                       ),
                     ),
                   ],
@@ -573,15 +585,18 @@ class _ReportMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final resolvedColor = CheckTapColors.adaptAccent(context, color);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
+        color: resolvedColor.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(CheckTapRadius.pill),
       ),
       child: Text(
         '$label $value',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
+        style: Theme.of(
+          context,
+        ).textTheme.labelSmall?.copyWith(color: resolvedColor),
       ),
     );
   }

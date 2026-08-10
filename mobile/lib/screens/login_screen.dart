@@ -7,6 +7,7 @@ import '../core/form_validators.dart';
 import '../services/notification_service.dart';
 import '../services/session_store.dart';
 import '../ui/components/checktap_logo.dart';
+import '../ui/components/developer_credit.dart';
 import '../ui/theme/checktap_colors.dart';
 import '../ui/theme/checktap_spacing.dart';
 
@@ -110,8 +111,10 @@ class _LoginScreenState extends State<LoginScreen> {
       final statusCode = error.response?.statusCode;
       setState(() {
         _loading = false;
-        if (statusCode == 401 || statusCode == 403) {
+        if (statusCode == 401) {
           _error = 'Correo o contraseña incorrectos.';
+        } else if (statusCode == 403) {
+          _error = _detailMessage(data) ?? 'Tu cuenta no tiene acceso.';
         } else if (data is Map<String, dynamic> && data['detail'] != null) {
           _error = data['detail'].toString();
         } else {
@@ -129,6 +132,27 @@ class _LoginScreenState extends State<LoginScreen> {
         _error = 'Ocurrió un error inesperado: $error';
       });
     }
+  }
+
+  String? _detailMessage(Object? data) {
+    if (data is! Map<String, dynamic>) {
+      return null;
+    }
+    final detail = data['detail'];
+    if (detail is String && detail.trim().isNotEmpty) {
+      return detail;
+    }
+    if (detail is Map && detail['message'] != null) {
+      return detail['message'].toString();
+    }
+    return null;
+  }
+
+  void _openRegistration() {
+    if (_loading) {
+      return;
+    }
+    Navigator.of(context).pushNamed('/register');
   }
 
   @override
@@ -150,6 +174,7 @@ class _LoginScreenState extends State<LoginScreen> {
               onTogglePassword: () =>
                   setState(() => _hidePassword = !_hidePassword),
               onSubmit: _submit,
+              onCreateAccount: _openRegistration,
             );
 
             if (wide) {
@@ -206,6 +231,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         _OfflineNote(
                           offlineSession: widget.session.offlineSession,
                         ),
+                        const SizedBox(height: CheckTapSpacing.md),
+                        const DeveloperCredit(
+                          key: ValueKey<String>('login-developer-credit'),
+                        ),
                       ],
                     ),
                   ),
@@ -229,6 +258,7 @@ class _LoginForm extends StatelessWidget {
     required this.error,
     required this.onTogglePassword,
     required this.onSubmit,
+    required this.onCreateAccount,
   });
 
   final GlobalKey<FormState> formKey;
@@ -239,6 +269,7 @@ class _LoginForm extends StatelessWidget {
   final String? error;
   final VoidCallback onTogglePassword;
   final VoidCallback onSubmit;
+  final VoidCallback onCreateAccount;
 
   @override
   Widget build(BuildContext context) {
@@ -247,10 +278,10 @@ class _LoginForm extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: CheckTapColors.border),
+        border: Border.all(color: CheckTapColors.borderFor(context)),
         boxShadow: <BoxShadow>[
           BoxShadow(
-            color: CheckTapColors.navy.withValues(alpha: 0.08),
+            color: CheckTapColors.shadowFor(context),
             blurRadius: 30,
             offset: const Offset(0, 14),
           ),
@@ -271,7 +302,7 @@ class _LoginForm extends StatelessWidget {
               Text(
                 'Ingresa para continuar con tu equipo.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: CheckTapColors.textMuted,
+                  color: CheckTapColors.textMutedFor(context),
                 ),
               ),
               const SizedBox(height: CheckTapSpacing.xl),
@@ -382,6 +413,29 @@ class _LoginForm extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: CheckTapSpacing.sm),
+              Row(
+                children: <Widget>[
+                  const Expanded(child: Divider()),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      'o',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: CheckTapColors.textMutedFor(context),
+                      ),
+                    ),
+                  ),
+                  const Expanded(child: Divider()),
+                ],
+              ),
+              const SizedBox(height: CheckTapSpacing.xs),
+              TextButton.icon(
+                key: const ValueKey<String>('create-account-button'),
+                onPressed: loading ? null : onCreateAccount,
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Crear una cuenta'),
+              ),
             ],
           ),
         ),
@@ -400,9 +454,9 @@ class _BrandPanel extends StatelessWidget {
     return Container(
       constraints: BoxConstraints(minHeight: height),
       padding: const EdgeInsets.all(48),
-      decoration: const BoxDecoration(
-        gradient: CheckTapColors.brandGradient,
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        gradient: CheckTapColors.panelGradientFor(context),
+        borderRadius: const BorderRadius.only(
           topRight: Radius.circular(50),
           bottomRight: Radius.circular(50),
         ),
@@ -442,6 +496,11 @@ class _BrandPanel extends StatelessWidget {
           const _FeaturePill(
             icon: Icons.notifications_active_outlined,
             label: 'Avisos y reportes al instante',
+          ),
+          const SizedBox(height: 28),
+          const DeveloperCredit(
+            key: ValueKey<String>('login-brand-developer-credit'),
+            onBrandSurface: true,
           ),
         ],
       ),
@@ -490,7 +549,9 @@ class _MobileBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: const BoxDecoration(gradient: CheckTapColors.quietGradient),
+      decoration: BoxDecoration(
+        gradient: CheckTapColors.quietGradientFor(context),
+      ),
       child: Stack(
         children: <Widget>[
           Positioned(
@@ -501,7 +562,7 @@ class _MobileBackground extends StatelessWidget {
               height: 320,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: CheckTapColors.cyan.withValues(alpha: 0.08),
+                color: CheckTapColors.cyanFor(context).withValues(alpha: 0.08),
               ),
             ),
           ),
@@ -513,7 +574,9 @@ class _MobileBackground extends StatelessWidget {
               height: 300,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: CheckTapColors.primary.withValues(alpha: 0.07),
+                color: CheckTapColors.primaryFor(
+                  context,
+                ).withValues(alpha: 0.07),
               ),
             ),
           ),

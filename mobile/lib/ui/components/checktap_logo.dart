@@ -24,7 +24,7 @@ class CheckTapLogo extends StatelessWidget {
         cacheWidth: cacheWidth,
         fit: BoxFit.contain,
         filterQuality: FilterQuality.high,
-        errorBuilder: (_, __, ___) => const _FallbackMark(),
+        errorBuilder: (_, _, _) => const _FallbackMark(),
       ),
     );
   }

@@ -51,7 +51,7 @@ Review these values before deployment:
 
 Expected resources:
 
-- Image: checktap-backend:0.7.0
+- Image: checktap-backend:0.12.0
 - Volume: checktap_postgres_data
 
 The volume is external so deleting and recreating the Portainer stack does not
@@ -112,7 +112,7 @@ Run this on the Flutter development computer, not necessarily on the server:
 
 The APK is written to:
 
-    dist/checktap-0.7.0.apk
+    dist/checktap-0.12.0.apk
 
 `adb reverse` is not required when the phone can reach 192.168.30.51 on the LAN.
 

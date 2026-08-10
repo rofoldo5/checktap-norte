@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_admin
 from app.models.department import Department, DepartmentMember
-from app.models.user import User
+from app.models.user import ACCOUNT_STATUS_APPROVED, User
 from app.schemas.department import (
     DepartmentCreate,
     DepartmentMembersUpdate,
@@ -18,16 +18,23 @@ from app.schemas.department import (
     DepartmentUpdate,
 )
 from app.schemas.user import UserSummary
-from app.services.department_service import active_department_ids, require_department_access
+from app.services.department_service import (
+    active_department_ids,
+    require_department_access,
+)
 
 router = APIRouter(prefix="/departments", tags=["departments"])
 
 
 def _summary(db: Session, department: Department) -> DepartmentSummary:
     member_count = db.scalar(
-        select(func.count(DepartmentMember.id)).where(
+        select(func.count(DepartmentMember.id))
+        .join(User, User.id == DepartmentMember.user_id)
+        .where(
             DepartmentMember.department_id == department.id,
             DepartmentMember.is_active.is_(True),
+            User.is_active.is_(True),
+            User.account_status == ACCOUNT_STATUS_APPROVED,
         )
     )
     return DepartmentSummary(
@@ -47,6 +54,7 @@ def _read(db: Session, department: Department) -> DepartmentRead:
                 DepartmentMember.department_id == department.id,
                 DepartmentMember.is_active.is_(True),
                 User.is_active.is_(True),
+                User.account_status == ACCOUNT_STATUS_APPROVED,
             )
             .options(selectinload(User.department_memberships))
             .order_by(User.name.asc())

@@ -602,6 +602,24 @@ class TaskRepository {
 
   Future<List<AppUser>> listManagedUsers() => _remote.listManagedUsers();
 
+  Future<List<AppUser>> listAccessRequests() => _remote.listAccessRequests();
+
+  Future<AppUser> approveAccessRequest(
+    AppUser user, {
+    required List<String> departmentIds,
+    bool isAdmin = false,
+  }) {
+    return _remote.approveAccessRequest(
+      user,
+      departmentIds: departmentIds,
+      isAdmin: isAdmin,
+    );
+  }
+
+  Future<AppUser> rejectAccessRequest(AppUser user, {String? reason}) {
+    return _remote.rejectAccessRequest(user, reason: reason);
+  }
+
   Future<AppUser> createUser({
     required String name,
     required String email,

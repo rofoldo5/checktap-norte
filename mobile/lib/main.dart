@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'core/performance_monitor.dart';
 import 'screens/login_screen.dart';
+import 'screens/registration_screen.dart';
 import 'screens/task_list_screen.dart';
 import 'services/background_sync.dart';
 import 'services/notification_service.dart';
@@ -78,6 +79,10 @@ class CheckTapApp extends StatelessWidget {
         ),
         '/tasks': (_) => TaskListScreen(
           key: const ValueKey<String>('task-list-screen'),
+          session: session,
+        ),
+        '/register': (_) => RegistrationScreen(
+          key: const ValueKey<String>('registration-screen'),
           session: session,
         ),
       },

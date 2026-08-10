@@ -54,6 +54,12 @@ abstract final class CheckTapColors {
     colors: <Color>[darkSurfaceElevated, darkSurfaceSoft],
   );
 
+  static const LinearGradient darkPanelGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: <Color>[Color(0xFF12243A), Color(0xFF0D1B2B), Color(0xFF091522)],
+  );
+
   static bool isDark(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark;
 
@@ -97,6 +103,28 @@ abstract final class CheckTapColors {
 
   static LinearGradient quietGradientFor(BuildContext context) =>
       isDark(context) ? darkQuietGradient : quietGradient;
+
+  static LinearGradient panelGradientFor(BuildContext context) =>
+      isDark(context) ? darkPanelGradient : brandGradient;
+
+  static Color panelTextFor(BuildContext context) =>
+      isDark(context) ? darkText : Colors.white;
+
+  static Color panelMutedTextFor(BuildContext context) =>
+      isDark(context) ? darkTextMuted : Colors.white.withValues(alpha: 0.84);
+
+  static Color panelControlFillFor(BuildContext context) =>
+      isDark(context) ? darkSurfaceSoft : Colors.white.withValues(alpha: 0.96);
+
+  static Color panelControlBorderFor(BuildContext context) =>
+      isDark(context) ? darkBorderStrong : Colors.white.withValues(alpha: 0.65);
+
+  static Color panelIconTileFor(BuildContext context) => isDark(context)
+      ? darkCyan.withValues(alpha: 0.10)
+      : Colors.white.withValues(alpha: 0.16);
+
+  static Color panelAccentFor(BuildContext context) =>
+      isDark(context) ? darkCyan : Colors.white;
 
   static Color adaptAccent(BuildContext context, Color color) {
     if (!isDark(context)) {

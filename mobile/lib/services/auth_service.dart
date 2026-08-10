@@ -1,5 +1,6 @@
 import '../core/api_client.dart';
 import '../models/app_user.dart';
+import '../models/department.dart';
 
 class AuthResult {
   const AuthResult({required this.token, required this.user});
@@ -12,6 +13,36 @@ class AuthService {
   AuthService(this.apiClient);
 
   final ApiClient apiClient;
+
+  Future<List<DepartmentSummary>> registrationDepartments() async {
+    final response = await apiClient.dio.get<List<dynamic>>(
+      '/auth/registration/departments',
+    );
+    return response.data!
+        .map(
+          (item) => DepartmentSummary.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<void> register({
+    required String name,
+    required String email,
+    required String password,
+    required String departmentId,
+  }) async {
+    await apiClient.dio.post<Map<String, dynamic>>(
+      '/auth/register',
+      data: <String, dynamic>{
+        'name': name.trim(),
+        'email': email.trim().toLowerCase(),
+        'password': password,
+        'department_id': departmentId,
+      },
+    );
+  }
 
   Future<AuthResult> login(String email, String password) async {
     final response = await apiClient.dio.post<Map<String, dynamic>>(

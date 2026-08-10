@@ -100,6 +100,38 @@ class TaskService {
         .toList();
   }
 
+  Future<List<AppUser>> listAccessRequests() async {
+    final response = await apiClient.dio.get<List<dynamic>>(
+      '/users/access-requests',
+    );
+    return response.data!
+        .map((item) => AppUser.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList(growable: false);
+  }
+
+  Future<AppUser> approveAccessRequest(
+    AppUser user, {
+    required List<String> departmentIds,
+    bool isAdmin = false,
+  }) async {
+    final response = await apiClient.dio.post<Map<String, dynamic>>(
+      '/users/${user.id}/approve',
+      data: <String, dynamic>{
+        'department_ids': departmentIds,
+        'is_admin': isAdmin,
+      },
+    );
+    return AppUser.fromJson(response.data!);
+  }
+
+  Future<AppUser> rejectAccessRequest(AppUser user, {String? reason}) async {
+    final response = await apiClient.dio.post<Map<String, dynamic>>(
+      '/users/${user.id}/reject',
+      data: <String, dynamic>{'reason': reason},
+    );
+    return AppUser.fromJson(response.data!);
+  }
+
   Future<AppUser> createUser({
     required String name,
     required String email,

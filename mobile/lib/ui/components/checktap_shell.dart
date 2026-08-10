@@ -77,6 +77,7 @@ class CheckTapTopBar extends StatelessWidget implements PreferredSizeWidget {
 class CheckTapDrawer extends StatelessWidget {
   const CheckTapDrawer({
     required this.user,
+    required this.onAccessRequests,
     required this.onUsers,
     required this.onDepartments,
     required this.onReports,
@@ -88,6 +89,7 @@ class CheckTapDrawer extends StatelessWidget {
   });
 
   final AppUser user;
+  final VoidCallback onAccessRequests;
   final VoidCallback onUsers;
   final VoidCallback onDepartments;
   final VoidCallback onReports;
@@ -187,6 +189,16 @@ class CheckTapDrawer extends StatelessWidget {
                     label: 'Perfil',
                     onTap: () => Navigator.of(context).pop(),
                   ),
+                  if (isAdmin)
+                    _DrawerItem(
+                      icon: Icons.how_to_reg_outlined,
+                      label: 'Solicitudes de acceso',
+                      trailing: const Icon(
+                        Icons.chevron_right_rounded,
+                        size: 20,
+                      ),
+                      onTap: onAccessRequests,
+                    ),
                   if (isAdmin)
                     _DrawerItem(
                       icon: Icons.apartment_rounded,

@@ -321,9 +321,12 @@ class _UserCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = user.isActive
-        ? CheckTapColors.success
-        : CheckTapColors.textMuted;
+    final statusColor = switch (user.accountStatus) {
+      AppUser.pendingStatus => CheckTapColors.warning,
+      AppUser.rejectedStatus => CheckTapColors.danger,
+      AppUser.suspendedStatus => CheckTapColors.textMuted,
+      _ => user.isActive ? CheckTapColors.success : CheckTapColors.textMuted,
+    };
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -397,7 +400,7 @@ class _UserCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          user.isActive ? 'Activo' : 'Inactivo',
+                          user.accountStatusLabel,
                           style: Theme.of(
                             context,
                           ).textTheme.labelSmall?.copyWith(color: statusColor),

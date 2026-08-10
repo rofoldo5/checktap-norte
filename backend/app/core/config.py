@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "CheckTap"
-    app_version: str = "0.11.0"
+    app_version: str = "0.12.0"
     environment: str = "development"
     api_prefix: str = "/api/v1"
 
@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str = "Admin123!"
 
     default_department_name: str = "Programacion"
+    self_registration_enabled: bool = True
 
     report_timezone: str = "America/Montreal"
     report_storage_path: str = "/app/reports"

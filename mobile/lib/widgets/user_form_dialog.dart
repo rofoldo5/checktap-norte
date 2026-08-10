@@ -226,7 +226,28 @@ class _UserFormDialogState extends State<UserFormDialog> {
                       ? null
                       : (value) => setState(() => _isAdmin = value),
                 ),
-                if (!widget.isCreate)
+                if (!widget.isCreate && user!.isPending)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Icon(Icons.schedule_rounded, color: Colors.amber),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Solicitud pendiente. Confirma su acceso desde Solicitudes de acceso.',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (!widget.isCreate && !user!.isPending)
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Cuenta activa'),
