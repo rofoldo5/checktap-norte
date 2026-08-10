@@ -324,3 +324,10 @@ __pycache__/
 **/build/
 **/.gradle/
 mobile/android/app/google-services.json
+
+# Local project backups
+backups/
+**/.backups/
+**/.checktap_*_backup
+**/.checktap_*_last_backup
+**/*.backup_*
