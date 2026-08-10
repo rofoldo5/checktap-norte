@@ -266,3 +266,15 @@ desktop.ini
 # -----------------------------------------------------------------------------
 validacion_offline_*.log
 mobile/lib/screens/commandrun.txt
+# Python virtual environments
+.venv/
+**/.venv/
+venv/
+**/venv/
+
+# Python generated files
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
