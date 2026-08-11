@@ -15,6 +15,7 @@ class CheckTapTopBar extends StatelessWidget implements PreferredSizeWidget {
     required this.onSync,
     this.syncing = false,
     this.pendingOperations = 0,
+    this.pendingAccessRequests = 0,
     super.key,
   });
 
@@ -25,6 +26,7 @@ class CheckTapTopBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback onSync;
   final bool syncing;
   final int pendingOperations;
+  final int pendingAccessRequests;
 
   @override
   Size get preferredSize => const Size.fromHeight(68);
@@ -36,11 +38,22 @@ class CheckTapTopBar extends StatelessWidget implements PreferredSizeWidget {
       leadingWidth: 64,
       leading: Padding(
         padding: const EdgeInsets.only(left: CheckTapSpacing.sm),
-        child: IconButton(
-          tooltip: 'Abrir menú',
-          onPressed: onMenu,
-          icon: const Icon(Icons.menu_rounded),
-        ),
+        child: pendingAccessRequests > 0
+            ? Badge(
+                backgroundColor: CheckTapColors.warning,
+                label: Text(_badgeLabel(pendingAccessRequests)),
+                child: IconButton(
+                  tooltip:
+                      'Abrir menú, $pendingAccessRequests solicitud(es) pendiente(s)',
+                  onPressed: onMenu,
+                  icon: const Icon(Icons.menu_rounded),
+                ),
+              )
+            : IconButton(
+                tooltip: 'Abrir menú',
+                onPressed: onMenu,
+                icon: const Icon(Icons.menu_rounded),
+              ),
       ),
       title: title,
       actions: <Widget>[
@@ -84,6 +97,7 @@ class CheckTapDrawer extends StatelessWidget {
     required this.onNotifications,
     required this.onLogout,
     required this.pendingOperations,
+    required this.pendingAccessRequests,
     this.isAdmin = false,
     super.key,
   });
@@ -96,6 +110,7 @@ class CheckTapDrawer extends StatelessWidget {
   final VoidCallback onNotifications;
   final VoidCallback onLogout;
   final int pendingOperations;
+  final int pendingAccessRequests;
   final bool isAdmin;
 
   @override
@@ -193,9 +208,8 @@ class CheckTapDrawer extends StatelessWidget {
                     _DrawerItem(
                       icon: Icons.how_to_reg_outlined,
                       label: 'Solicitudes de acceso',
-                      trailing: const Icon(
-                        Icons.chevron_right_rounded,
-                        size: 20,
+                      trailing: _AccessRequestsTrailing(
+                        count: pendingAccessRequests,
                       ),
                       onTap: onAccessRequests,
                     ),
@@ -272,6 +286,34 @@ class CheckTapDrawer extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+String _badgeLabel(int count) => count > 99 ? '99+' : '$count';
+
+class _AccessRequestsTrailing extends StatelessWidget {
+  const _AccessRequestsTrailing({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (count > 0) ...<Widget>[
+          Badge(
+            backgroundColor: CheckTapColors.warning,
+            label: Text(
+              _badgeLabel(count),
+              semanticsLabel: '$count solicitudes pendientes',
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+        const Icon(Icons.chevron_right_rounded, size: 20),
+      ],
     );
   }
 }

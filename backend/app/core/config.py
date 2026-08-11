@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "CheckTap"
-    app_version: str = "0.12.0"
+    app_version: str = "0.13.0"
     environment: str = "development"
     api_prefix: str = "/api/v1"
 
@@ -67,7 +67,9 @@ class Settings(BaseSettings):
 
         if self.database_url.startswith("sqlite"):
             raise ValueError("Production requires PostgreSQL DATABASE_URL")
-        if len(self.jwt_secret) < 32 or self.jwt_secret.startswith("development-secret"):
+        if len(self.jwt_secret) < 32 or self.jwt_secret.startswith(
+            "development-secret"
+        ):
             raise ValueError("Production requires a strong JWT_SECRET")
         if self.bootstrap_admin_password == "Admin123!":
             raise ValueError("Production requires a strong bootstrap admin password")

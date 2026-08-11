@@ -604,6 +604,8 @@ class TaskRepository {
 
   Future<List<AppUser>> listAccessRequests() => _remote.listAccessRequests();
 
+  Future<int> accessRequestCount() => _remote.accessRequestCount();
+
   Future<AppUser> approveAccessRequest(
     AppUser user, {
     required List<String> departmentIds,

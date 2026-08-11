@@ -95,6 +95,10 @@ class UserRead(UserSummary):
     review_note: str | None = None
 
 
+class AccessRequestCount(BaseModel):
+    count: int = Field(ge=0)
+
+
 class UserApproval(BaseModel):
     department_ids: list[UUID] = Field(min_length=1, max_length=50)
     is_admin: bool = False

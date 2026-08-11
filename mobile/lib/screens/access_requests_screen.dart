@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../data/repositories/task_repository.dart';
 import '../models/app_user.dart';
 import '../models/department.dart';
+import '../services/realtime_service.dart';
 import '../services/session_store.dart';
 import '../ui/components/empty_state.dart';
 import '../ui/components/section_header.dart';
@@ -20,26 +23,73 @@ class AccessRequestsScreen extends StatefulWidget {
   State<AccessRequestsScreen> createState() => _AccessRequestsScreenState();
 }
 
-class _AccessRequestsScreenState extends State<AccessRequestsScreen> {
+class _AccessRequestsScreenState extends State<AccessRequestsScreen>
+    with WidgetsBindingObserver {
   late final TaskRepository _repository;
+  final RealtimeService _realtimeService = RealtimeService();
   List<AppUser> _requests = const <AppUser>[];
   List<DepartmentSummary> _departments = const <DepartmentSummary>[];
   final Set<String> _processingIds = <String>{};
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _repository = TaskRepository(widget.session.apiClient);
     _load();
+    _startAutomaticRefresh();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  void _startAutomaticRefresh() {
+    final token = widget.session.token;
+    if (token != null) {
+      _realtimeService.connect(
+        token: token,
+        onTaskChanged: () {},
+        onEvent: (payload) {
+          final eventName = payload['event']?.toString() ?? '';
+          if (eventName.startsWith('access_request.')) {
+            unawaited(_load(silent: true));
+          }
+        },
+      );
+    }
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => unawaited(_load(silent: true)),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_load(silent: true));
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _refreshTimer?.cancel();
+    _realtimeService.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (_refreshing) {
+      return;
+    }
+    _refreshing = true;
+    if (!silent && mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final results = await Future.wait<dynamic>(<Future<dynamic>>[
         _repository.listAccessRequests(),
@@ -53,12 +103,14 @@ class _AccessRequestsScreenState extends State<AccessRequestsScreen> {
         _departments = (results[1] as List<DepartmentSummary>)
             .where((department) => department.isActive)
             .toList(growable: false);
+        _error = null;
       });
     } catch (error) {
-      if (mounted) {
+      if (mounted && (!silent || _requests.isEmpty)) {
         setState(() => _error = _message(error));
       }
     } finally {
+      _refreshing = false;
       if (mounted) {
         setState(() => _loading = false);
       }

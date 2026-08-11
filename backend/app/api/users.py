@@ -2,8 +2,8 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
@@ -18,6 +18,7 @@ from app.models.user import (
     User,
 )
 from app.schemas.user import (
+    AccessRequestCount,
     UserApproval,
     UserCreate,
     UserRead,
@@ -29,6 +30,8 @@ from app.services.department_service import (
     active_department_ids,
     replace_user_departments,
 )
+from app.services.notification_service import notification_service
+from app.services.websocket_manager import manager
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -82,6 +85,17 @@ def list_access_requests(
         .order_by(User.created_at.asc())
     )
     return list(db.scalars(query).unique().all())
+
+
+@router.get("/access-requests/count", response_model=AccessRequestCount)
+def count_access_requests(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_admin)],
+) -> AccessRequestCount:
+    count = db.scalar(
+        select(func.count(User.id)).where(User.account_status == ACCOUNT_STATUS_PENDING)
+    )
+    return AccessRequestCount(count=int(count or 0))
 
 
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -174,9 +188,10 @@ def update_user(
 
 
 @router.post("/{user_id}/approve", response_model=UserRead)
-def approve_access_request(
+async def approve_access_request(
     user_id: UUID,
     payload: UserApproval,
+    background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
 ) -> User:
@@ -199,13 +214,37 @@ def approve_access_request(
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    pending_count = int(
+        db.scalar(
+            select(func.count(User.id)).where(
+                User.account_status == ACCOUNT_STATUS_PENDING
+            )
+        )
+        or 0
+    )
+    await manager.broadcast_admins(
+        {
+            "event": "access_request.reviewed",
+            "request_id": str(user.id),
+            "decision": "approved",
+            "pending_count": pending_count,
+        }
+    )
+    background_tasks.add_task(
+        notification_service.notify_access_request_reviewed,
+        user_id=user.id,
+        reviewer_id=current_user.id,
+        approved=True,
+    )
     return user
 
 
 @router.post("/{user_id}/reject", response_model=UserRead)
-def reject_access_request(
+async def reject_access_request(
     user_id: UUID,
     payload: UserRejection,
+    background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
 ) -> User:
@@ -227,4 +266,28 @@ def reject_access_request(
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    pending_count = int(
+        db.scalar(
+            select(func.count(User.id)).where(
+                User.account_status == ACCOUNT_STATUS_PENDING
+            )
+        )
+        or 0
+    )
+    await manager.broadcast_admins(
+        {
+            "event": "access_request.reviewed",
+            "request_id": str(user.id),
+            "decision": "rejected",
+            "pending_count": pending_count,
+        }
+    )
+    background_tasks.add_task(
+        notification_service.notify_access_request_reviewed,
+        user_id=user.id,
+        reviewer_id=current_user.id,
+        approved=False,
+        reason=user.review_note,
+    )
     return user

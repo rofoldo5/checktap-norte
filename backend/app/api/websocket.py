@@ -25,7 +25,7 @@ async def tasks_websocket(websocket: WebSocket, token: str) -> None:
             await websocket.close(code=4401)
             return
 
-    await manager.connect(websocket)
+    await manager.connect(websocket, is_admin=user.is_admin)
     try:
         await websocket.send_json({"event": "connected"})
         while True:

@@ -18,6 +18,7 @@ El sistema puede desplegarse dentro de la red local de una organización mediant
 
 - Autenticación mediante JWT y almacenamiento seguro de la sesión.
 - Autorregistro de colaboradores con aprobación o rechazo del administrador.
+- Aviso inmediato, contador y actualización automática de solicitudes pendientes.
 - Gestión de usuarios, administradores, departamentos y membresías.
 - Tareas con prioridad, estado, descripción y múltiples responsables.
 - Listas de verificación con elementos y progreso independiente.
@@ -106,7 +107,9 @@ Clave:  Admin123!
 
 Desde la pantalla de acceso, un colaborador puede seleccionar **Crear una cuenta**, completar sus credenciales y elegir un departamento. La cuenta queda en estado **Pendiente** y no puede iniciar sesión hasta que un administrador la revise desde **Menú → Solicitudes de acceso**.
 
-El administrador puede corregir el departamento, mantener la cuenta como colaborador o asignarle permisos administrativos, y aprobar o rechazar la solicitud. El autorregistro nunca permite solicitar privilegios de administrador directamente.
+El administrador recibe el cambio en tiempo real mientras usa la aplicación y, cuando Firebase está habilitado, también una notificación push. El menú muestra un contador de solicitudes pendientes y la lista se actualiza automáticamente.
+
+El administrador puede corregir el departamento, mantener la cuenta como colaborador o asignarle permisos administrativos, y aprobar o rechazar la solicitud. El autorregistro nunca permite solicitar privilegios de administrador directamente. Si el colaborador autorizó las notificaciones al registrarse, su dispositivo recibe el resultado de la revisión; de lo contrario, el estado se muestra al intentar iniciar sesión.
 
 ## Ejecutar la aplicación móvil
 
@@ -209,6 +212,7 @@ No publiques archivos `.env`, credenciales privadas de Firebase, copias de segur
 - [Cliente Flutter](mobile/README.md)
 - [Checklists](docs/CHECKLISTS_V0_11.md)
 - [Autorregistro y aprobación](docs/SELF_REGISTRATION_V0_12.md)
+- [Notificaciones de solicitudes](docs/ACCESS_REQUEST_NOTIFICATIONS_V0_13.md)
 - [Arquitectura de interfaz](docs/CHECKTAP_UI_ARCHITECTURE.md)
 - [Guía de mantenimiento de UI](docs/CHECKTAP_UI_MAINTENANCE.md)
 - [QA móvil](docs/CHECKTAP_MOBILE_QA.md)

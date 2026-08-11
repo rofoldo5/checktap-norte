@@ -7,7 +7,7 @@
 | API_PORT | 8080 | LAN port published for CheckTap |
 | API_BASE_URL | http://192.168.30.51:8080 | URL used by verification and Flutter builds |
 | CHECKTAP_IMAGE | checktap-backend | Local Docker image name |
-| CHECKTAP_IMAGE_TAG | 0.12.0 | Deployable image version |
+| CHECKTAP_IMAGE_TAG | 0.13.0 | Deployable image version |
 | SELF_REGISTRATION_ENABLED | true | Habilita el registro con aprobación administrativa |
 | POSTGRES_DB | checktap | PostgreSQL database |
 | POSTGRES_USER | checktap | PostgreSQL role |

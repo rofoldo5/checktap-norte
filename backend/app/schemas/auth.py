@@ -2,6 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.schemas.device import DeviceRegistrationUpsert
 from app.schemas.user import UserRead
 
 
@@ -30,6 +31,7 @@ class RegistrationRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     department_id: UUID
+    device_registration: DeviceRegistrationUpsert | None = None
 
     @field_validator("name")
     @classmethod
@@ -58,4 +60,5 @@ class RegistrationResponse(BaseModel):
     email: EmailStr
     account_status: str
     department_id: UUID
+    notification_registered: bool = False
     message: str

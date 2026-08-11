@@ -4,9 +4,10 @@ import json
 import logging
 import threading
 import warnings
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Any, Iterable
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -18,7 +19,7 @@ from app.models.department import Department, DepartmentMember
 from app.models.device_registration import DeviceRegistration
 from app.models.notification_event import NotificationDelivery, NotificationEvent
 from app.models.task import Task
-from app.models.user import User
+from app.models.user import ACCOUNT_STATUS_APPROVED, User
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,9 @@ class FirebaseNotificationService:
                         DeviceRegistration.is_active.is_(True),
                     )
                     .order_by(DeviceRegistration.last_seen_at.desc())
-                ).unique().all()
+                )
+                .unique()
+                .all()
             )
             db.commit()
 
@@ -178,6 +181,145 @@ class FirebaseNotificationService:
                 title=title,
                 body=body,
                 data=string_data,
+                event=event,
+            )
+
+    def notify_access_request_created(self, *, user_id: UUID) -> DeliveryReport:
+        with SessionLocal() as db:
+            user = db.get(User, user_id)
+            membership = db.scalar(
+                select(DepartmentMember)
+                .where(
+                    DepartmentMember.user_id == user_id,
+                    DepartmentMember.is_active.is_(True),
+                )
+                .order_by(DepartmentMember.created_at.asc())
+            )
+            if user is None or membership is None:
+                return DeliveryReport()
+            department = db.get(Department, membership.department_id)
+            if department is None:
+                return DeliveryReport()
+
+            data = {
+                "type": "access_request_created",
+                "request_id": str(user.id),
+                "user_name": user.name,
+                "department_id": str(department.id),
+                "department_name": department.name,
+            }
+            event = NotificationEvent(
+                department_id=department.id,
+                event_type="access_request_created",
+                actor_user_id=user.id,
+                title="Nueva solicitud de acceso",
+                body=f"{user.name} solicita acceso a {department.name}.",
+                data_json=json.dumps(data, ensure_ascii=False),
+            )
+            db.add(event)
+            db.flush()
+
+            registrations = list(
+                db.scalars(
+                    select(DeviceRegistration)
+                    .join(User, User.id == DeviceRegistration.user_id)
+                    .where(
+                        User.is_admin.is_(True),
+                        User.is_active.is_(True),
+                        User.account_status == ACCOUNT_STATUS_APPROVED,
+                        DeviceRegistration.is_active.is_(True),
+                    )
+                    .order_by(DeviceRegistration.last_seen_at.desc())
+                ).all()
+            )
+            db.commit()
+
+            if not self.initialize():
+                return DeliveryReport(event_id=event.id)
+            return self._send_registrations(
+                db=db,
+                registrations=registrations,
+                title=event.title,
+                body=event.body,
+                data=data,
+                event=event,
+            )
+
+    def notify_access_request_reviewed(
+        self,
+        *,
+        user_id: UUID,
+        reviewer_id: UUID,
+        approved: bool,
+        reason: str | None = None,
+    ) -> DeliveryReport:
+        with SessionLocal() as db:
+            user = db.get(User, user_id)
+            membership = db.scalar(
+                select(DepartmentMember)
+                .where(
+                    DepartmentMember.user_id == user_id,
+                    DepartmentMember.is_active.is_(True),
+                )
+                .order_by(DepartmentMember.created_at.asc())
+            )
+            if user is None or membership is None:
+                return DeliveryReport()
+            department = db.get(Department, membership.department_id)
+            if department is None:
+                return DeliveryReport()
+
+            if approved:
+                event_type = "access_request_approved"
+                title = "Acceso aprobado"
+                body = "Tu acceso a CheckTap fue aprobado. Ya puedes iniciar sesión."
+            else:
+                event_type = "access_request_rejected"
+                title = "Solicitud revisada"
+                body = "Tu solicitud de acceso a CheckTap fue rechazada."
+                if reason:
+                    body = f"{body} Motivo: {reason}"
+
+            data = {
+                "type": event_type,
+                "user_id": str(user.id),
+                "account_status": "APPROVED" if approved else "REJECTED",
+                "department_id": str(department.id),
+                "department_name": department.name,
+            }
+            if reason:
+                data["reason"] = reason
+
+            event = NotificationEvent(
+                department_id=department.id,
+                event_type=event_type,
+                actor_user_id=reviewer_id,
+                title=title,
+                body=body,
+                data_json=json.dumps(data, ensure_ascii=False),
+            )
+            db.add(event)
+            db.flush()
+            registrations = list(
+                db.scalars(
+                    select(DeviceRegistration)
+                    .where(
+                        DeviceRegistration.user_id == user.id,
+                        DeviceRegistration.is_active.is_(True),
+                    )
+                    .order_by(DeviceRegistration.last_seen_at.desc())
+                ).all()
+            )
+            db.commit()
+
+            if not self.initialize():
+                return DeliveryReport(event_id=event.id)
+            return self._send_registrations(
+                db=db,
+                registrations=registrations,
+                title=title,
+                body=body,
+                data=data,
                 event=event,
             )
 
@@ -258,8 +400,7 @@ class FirebaseNotificationService:
             event_type="checklist_completed",
             title=f"Checklist completado en {department_name}",
             body=(
-                f'{actor.name} completo "{checklist_title}" '
-                f'en la tarea "{task_title}".'
+                f'{actor.name} completo "{checklist_title}" en la tarea "{task_title}".'
             ),
             actor_user_id=actor_id,
             task_id=task_id,
@@ -319,9 +460,7 @@ class FirebaseNotificationService:
         from firebase_admin import messaging
 
         string_data = {
-            str(key): str(value)
-            for key, value in data.items()
-            if value is not None
+            str(key): str(value) for key, value in data.items() if value is not None
         }
         now = datetime.now(UTC)
 
@@ -423,7 +562,9 @@ class FirebaseNotificationService:
         )
 
     @staticmethod
-    def _chunks(items: list[DeviceRegistration], size: int) -> Iterable[list[DeviceRegistration]]:
+    def _chunks(
+        items: list[DeviceRegistration], size: int
+    ) -> Iterable[list[DeviceRegistration]]:
         for index in range(0, len(items), size):
             yield items[index : index + size]
 

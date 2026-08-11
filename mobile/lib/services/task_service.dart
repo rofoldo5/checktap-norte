@@ -109,6 +109,13 @@ class TaskService {
         .toList(growable: false);
   }
 
+  Future<int> accessRequestCount() async {
+    final response = await apiClient.dio.get<Map<String, dynamic>>(
+      '/users/access-requests/count',
+    );
+    return (response.data?['count'] as num?)?.toInt() ?? 0;
+  }
+
   Future<AppUser> approveAccessRequest(
     AppUser user, {
     required List<String> departmentIds,

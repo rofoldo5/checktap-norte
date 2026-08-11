@@ -15,7 +15,7 @@ const AndroidNotificationChannel checkTapNotificationChannel =
       'checktap_high_importance',
       'Notificaciones CheckTap',
       description:
-          'Avisos de actividad del equipo y reportes diarios de CheckTap.',
+          'Actividad, solicitudes de acceso y reportes diarios de CheckTap.',
       importance: Importance.max,
     );
 
@@ -34,6 +34,7 @@ class NotificationEvent {
     this.title,
     this.body,
     this.data = const <String, dynamic>{},
+    this.openedFromNotification = false,
   });
 
   final String source;
@@ -42,6 +43,7 @@ class NotificationEvent {
   final String? title;
   final String? body;
   final Map<String, dynamic> data;
+  final bool openedFromNotification;
 }
 
 class NotificationActivationResult {
@@ -147,6 +149,14 @@ class NotificationService {
         onDidReceiveNotificationResponse: _handleLocalNotificationTap,
       );
 
+      final localLaunchDetails = await _localNotifications
+          .getNotificationAppLaunchDetails();
+      final localLaunchResponse = localLaunchDetails?.notificationResponse;
+      if ((localLaunchDetails?.didNotificationLaunchApp ?? false) &&
+          localLaunchResponse != null) {
+        _handleLocalNotificationTap(localLaunchResponse);
+      }
+
       await _localNotifications
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
@@ -168,7 +178,11 @@ class NotificationService {
         _handleForegroundMessage,
       );
       _openedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
-        (message) => _recordRemoteEvent('abierta desde segundo plano', message),
+        (message) => _recordRemoteEvent(
+          'abierta desde segundo plano',
+          message,
+          openedFromNotification: true,
+        ),
       );
       _tokenRefreshSubscription = FirebaseMessaging.instance.onTokenRefresh
           .listen(
@@ -188,7 +202,11 @@ class NotificationService {
       final initialMessage = await FirebaseMessaging.instance
           .getInitialMessage();
       if (initialMessage != null) {
-        _recordRemoteEvent('abierta desde cerrada', initialMessage);
+        _recordRemoteEvent(
+          'abierta desde cerrada',
+          initialMessage,
+          openedFromNotification: true,
+        );
       }
 
       _initialized = true;
@@ -308,6 +326,40 @@ class NotificationService {
         _registrationFuture = null;
       }
     }
+  }
+
+  Future<Map<String, dynamic>?> pendingAccountDeviceRegistration() async {
+    await initialize();
+    if (!_initialized) {
+      return null;
+    }
+
+    final settings = await FirebaseMessaging.instance.getNotificationSettings();
+    authorizationStatus.value = settings.authorizationStatus;
+    if (!_isAuthorized(settings.authorizationStatus)) {
+      return null;
+    }
+
+    var currentToken = token.value;
+    if (currentToken == null || currentToken.isEmpty) {
+      try {
+        currentToken = await refreshToken();
+      } catch (error, stackTrace) {
+        debugPrint('[FCM] Token no disponible para la solicitud: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        return null;
+      }
+    }
+    if (currentToken == null || currentToken.isEmpty) {
+      return null;
+    }
+
+    return <String, dynamic>{
+      'registration_id': currentToken,
+      'registration_kind': 'TOKEN',
+      'platform': _platformName(),
+      'device_name': _deviceName(),
+    };
   }
 
   Future<bool> _registerCurrentDeviceInternal({
@@ -539,7 +591,7 @@ class NotificationService {
         'checktap_high_importance',
         'Notificaciones CheckTap',
         channelDescription:
-            'Avisos de actividad del equipo y reportes diarios de CheckTap.',
+            'Actividad, solicitudes de acceso y reportes diarios de CheckTap.',
         importance: Importance.max,
         priority: Priority.high,
         icon: 'ic_stat_checktap',
@@ -583,7 +635,7 @@ class NotificationService {
         'checktap_high_importance',
         'Notificaciones CheckTap',
         channelDescription:
-            'Avisos de actividad del equipo y reportes diarios de CheckTap.',
+            'Actividad, solicitudes de acceso y reportes diarios de CheckTap.',
         importance: Importance.max,
         priority: Priority.high,
         icon: 'ic_stat_checktap',
@@ -604,7 +656,11 @@ class NotificationService {
     );
   }
 
-  void _recordRemoteEvent(String source, RemoteMessage message) {
+  void _recordRemoteEvent(
+    String source,
+    RemoteMessage message, {
+    bool openedFromNotification = false,
+  }) {
     lastEvent.value = NotificationEvent(
       source: source,
       receivedAt: DateTime.now(),
@@ -612,6 +668,7 @@ class NotificationService {
       title: message.notification?.title,
       body: message.notification?.body,
       data: message.data,
+      openedFromNotification: openedFromNotification,
     );
 
     debugPrint(
@@ -621,14 +678,26 @@ class NotificationService {
   }
 
   void _handleLocalNotificationTap(NotificationResponse response) {
+    var data = <String, dynamic>{};
+    final payload = response.payload;
+    if (payload != null && payload.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(payload);
+        if (decoded is Map) {
+          data = Map<String, dynamic>.from(decoded);
+        }
+      } catch (error) {
+        data = <String, dynamic>{'payload': payload};
+        debugPrint('[FCM] Payload local no reconocido: $error');
+      }
+    }
+    data['actionId'] = response.actionId;
     lastEvent.value = NotificationEvent(
       source: 'toque en notificacion local',
       receivedAt: DateTime.now(),
       messageId: response.id?.toString(),
-      data: <String, dynamic>{
-        'payload': response.payload,
-        'actionId': response.actionId,
-      },
+      data: data,
+      openedFromNotification: true,
     );
   }
 

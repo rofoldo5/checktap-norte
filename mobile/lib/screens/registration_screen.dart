@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../core/form_validators.dart';
 import '../models/department.dart';
+import '../services/notification_service.dart';
 import '../services/session_store.dart';
 import '../ui/components/checktap_logo.dart';
 import '../ui/theme/checktap_colors.dart';
@@ -30,6 +31,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   bool _loadingDepartments = true;
   bool _saving = false;
   bool _submitted = false;
+  bool _notificationRegistered = false;
   bool _hidePassword = true;
   bool _hideConfirmation = true;
 
@@ -92,16 +94,29 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       _error = null;
     });
     try {
-      await widget.session.authService.register(
+      Map<String, dynamic>? deviceRegistration;
+      try {
+        deviceRegistration = await NotificationService.instance
+            .pendingAccountDeviceRegistration();
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[FCM] La solicitud continuara sin registrar el dispositivo: $error',
+        );
+        debugPrintStack(stackTrace: stackTrace);
+      }
+
+      final result = await widget.session.authService.register(
         name: FormValidators.normalizeSingleLine(_nameController.text),
         email: FormValidators.normalizeEmail(_emailController.text),
         password: _passwordController.text,
         departmentId: _departmentId!,
+        deviceRegistration: deviceRegistration,
       );
       if (mounted) {
         setState(() {
           _saving = false;
           _submitted = true;
+          _notificationRegistered = result.notificationRegistered;
         });
       }
     } catch (error) {
@@ -172,6 +187,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                 email: FormValidators.normalizeEmail(
                                   _emailController.text,
                                 ),
+                                notificationRegistered: _notificationRegistered,
                                 onReturn: _returnToLogin,
                               )
                             : _buildForm(context),
@@ -404,9 +420,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 }
 
 class _RegistrationSuccess extends StatelessWidget {
-  const _RegistrationSuccess({required this.email, required this.onReturn});
+  const _RegistrationSuccess({
+    required this.email,
+    required this.notificationRegistered,
+    required this.onReturn,
+  });
 
   final String email;
+  final bool notificationRegistered;
   final VoidCallback onReturn;
 
   @override
@@ -464,6 +485,18 @@ class _RegistrationSuccess extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
               color: CheckTapColors.textMutedFor(context),
             ),
+          ),
+          const SizedBox(height: CheckTapSpacing.lg),
+          _RegistrationMessage(
+            message: notificationRegistered
+                ? 'Te avisaremos en este dispositivo cuando el administrador apruebe o rechace la solicitud.'
+                : 'Cuando el administrador revise la solicitud, podrás comprobar el resultado al iniciar sesión.',
+            color: notificationRegistered
+                ? CheckTapColors.success
+                : CheckTapColors.info,
+            icon: notificationRegistered
+                ? Icons.notifications_active_outlined
+                : Icons.login_rounded,
           ),
           const SizedBox(height: CheckTapSpacing.lg),
           Container(

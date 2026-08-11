@@ -211,5 +211,92 @@ def test_department_send_targets_all_five_registered_members(monkeypatch) -> Non
         assert sent.status_code == 200, sent.text
         assert sent.json()["attempted"] == 5
         assert sent.json()["success_count"] == 5
-        assert set(str(item) for item in captured_user_ids) == set(member_ids)
+        assert {str(item) for item in captured_user_ids} == set(member_ids)
         assert member_ids[0] in {str(item) for item in captured_user_ids}
+
+
+def test_new_access_request_targets_all_registered_admins(monkeypatch) -> None:
+    captured_user_ids: list[str] = []
+    captured_data: list[dict[str, object]] = []
+
+    def fake_initialize() -> bool:
+        return True
+
+    def fake_send_registrations(**kwargs) -> DeliveryReport:
+        registrations = kwargs["registrations"]
+        captured_user_ids.extend(str(item.user_id) for item in registrations)
+        captured_data.append(dict(kwargs["data"]))
+        return DeliveryReport(
+            attempted=len(registrations),
+            success_count=len(registrations),
+            event_id=kwargs["event"].id,
+        )
+
+    monkeypatch.setattr(notification_service, "initialize", fake_initialize)
+    monkeypatch.setattr(
+        notification_service,
+        "_send_registrations",
+        fake_send_registrations,
+    )
+
+    with TestClient(app) as client:
+        admin_headers = _login(client, "admin@example.com", "Admin123!")
+        first_admin = client.get("/api/v1/auth/me", headers=admin_headers).json()
+        first_registration = client.post(
+            "/api/v1/devices",
+            headers=admin_headers,
+            json={
+                "registration_id": "request-admin-one-" + ("a" * 80),
+                "registration_kind": "TOKEN",
+                "platform": "android",
+                "device_name": "Administrador uno",
+            },
+        )
+        assert first_registration.status_code == 200, first_registration.text
+
+        suffix = uuid4().hex[:8]
+        second_email = f"admin-requests-{suffix}@example.com"
+        second_admin = client.post(
+            "/api/v1/users",
+            headers=admin_headers,
+            json={
+                "name": "Segundo Administrador",
+                "email": second_email,
+                "password": "Administrador123!",
+                "is_admin": True,
+            },
+        )
+        assert second_admin.status_code == 201, second_admin.text
+        second_headers = _login(client, second_email, "Administrador123!")
+        second_registration = client.post(
+            "/api/v1/devices",
+            headers=second_headers,
+            json={
+                "registration_id": "request-admin-two-" + ("b" * 80),
+                "registration_kind": "TOKEN",
+                "platform": "android",
+                "device_name": "Administrador dos",
+            },
+        )
+        assert second_registration.status_code == 200, second_registration.text
+
+        department_id = client.get("/api/v1/auth/registration/departments").json()[0][
+            "id"
+        ]
+        registered = client.post(
+            "/api/v1/auth/register",
+            json={
+                "name": "Solicitud Para Administradores",
+                "email": f"request-notify-{suffix}@example.com",
+                "password": "Solicitud123!",
+                "department_id": department_id,
+            },
+        )
+        assert registered.status_code == 201, registered.text
+
+        assert set(captured_user_ids) == {
+            first_admin["id"],
+            second_admin.json()["id"],
+        }
+        assert captured_data[-1]["type"] == "access_request_created"
+        assert captured_data[-1]["request_id"] == registered.json()["id"]

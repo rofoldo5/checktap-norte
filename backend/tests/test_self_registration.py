@@ -197,3 +197,101 @@ def test_non_admin_cannot_review_access_requests() -> None:
             headers=operator_headers,
         )
         assert requests.status_code == 403
+        count = client.get(
+            "/api/v1/users/access-requests/count",
+            headers=operator_headers,
+        )
+        assert count.status_code == 403
+
+
+def test_registration_device_receives_review_notification(monkeypatch) -> None:
+    from app.services.notification_service import (
+        DeliveryReport,
+        notification_service,
+    )
+
+    created_calls: list[dict[str, object]] = []
+    reviewed_calls: list[dict[str, object]] = []
+
+    def fake_created(**kwargs) -> DeliveryReport:
+        created_calls.append(kwargs)
+        return DeliveryReport()
+
+    def fake_reviewed(**kwargs) -> DeliveryReport:
+        reviewed_calls.append(kwargs)
+        return DeliveryReport(attempted=1, success_count=1)
+
+    monkeypatch.setattr(
+        notification_service,
+        "notify_access_request_created",
+        fake_created,
+    )
+    monkeypatch.setattr(
+        notification_service,
+        "notify_access_request_reviewed",
+        fake_reviewed,
+    )
+
+    with TestClient(app) as client:
+        admin_headers = _login(client, "admin@example.com", "Admin123!")
+        initial_count_response = client.get(
+            "/api/v1/users/access-requests/count",
+            headers=admin_headers,
+        )
+        assert initial_count_response.status_code == 200
+        initial_count = initial_count_response.json()["count"]
+
+        department_id = _default_department_id(client)
+        registration_id = "pending-device-" + ("n" * 90)
+        registered = client.post(
+            "/api/v1/auth/register",
+            json={
+                "name": "Solicitud Con Avisos",
+                "email": "solicitud-con-avisos@example.com",
+                "password": "Solicitud123!",
+                "department_id": department_id,
+                "device_registration": {
+                    "registration_id": registration_id,
+                    "registration_kind": "TOKEN",
+                    "platform": "android",
+                    "device_name": "Telefono pendiente",
+                },
+            },
+        )
+        assert registered.status_code == 201, registered.text
+        assert registered.json()["notification_registered"] is True
+        assert len(created_calls) == 1
+        assert str(created_calls[0]["user_id"]) == registered.json()["id"]
+
+        pending_count = client.get(
+            "/api/v1/users/access-requests/count",
+            headers=admin_headers,
+        )
+        assert pending_count.status_code == 200
+        assert pending_count.json()["count"] == initial_count + 1
+
+        approved = client.post(
+            f"/api/v1/users/{registered.json()['id']}/approve",
+            headers=admin_headers,
+            json={"department_ids": [department_id], "is_admin": False},
+        )
+        assert approved.status_code == 200, approved.text
+        assert len(reviewed_calls) == 1
+        assert str(reviewed_calls[0]["user_id"]) == registered.json()["id"]
+        assert reviewed_calls[0]["approved"] is True
+
+        final_count = client.get(
+            "/api/v1/users/access-requests/count",
+            headers=admin_headers,
+        )
+        assert final_count.status_code == 200
+        assert final_count.json()["count"] == initial_count
+
+        user_headers = _login(
+            client,
+            "solicitud-con-avisos@example.com",
+            "Solicitud123!",
+        )
+        devices = client.get("/api/v1/devices", headers=user_headers)
+        assert devices.status_code == 200, devices.text
+        assert devices.json()["active_count"] == 1

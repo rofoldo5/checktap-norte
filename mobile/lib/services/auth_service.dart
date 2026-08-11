@@ -9,6 +9,16 @@ class AuthResult {
   final AppUser user;
 }
 
+class RegistrationResult {
+  const RegistrationResult({
+    required this.message,
+    required this.notificationRegistered,
+  });
+
+  final String message;
+  final bool notificationRegistered;
+}
+
 class AuthService {
   AuthService(this.apiClient);
 
@@ -27,20 +37,29 @@ class AuthService {
         .toList(growable: false);
   }
 
-  Future<void> register({
+  Future<RegistrationResult> register({
     required String name,
     required String email,
     required String password,
     required String departmentId,
+    Map<String, dynamic>? deviceRegistration,
   }) async {
-    await apiClient.dio.post<Map<String, dynamic>>(
+    final response = await apiClient.dio.post<Map<String, dynamic>>(
       '/auth/register',
       data: <String, dynamic>{
         'name': name.trim(),
         'email': email.trim().toLowerCase(),
         'password': password,
         'department_id': departmentId,
+        'device_registration': ?deviceRegistration,
       },
+    );
+    final data = response.data ?? const <String, dynamic>{};
+    return RegistrationResult(
+      message:
+          data['message']?.toString() ??
+          'Solicitud enviada. Un administrador debe aprobar tu acceso.',
+      notificationRegistered: data['notification_registered'] as bool? ?? false,
     );
   }
 

@@ -51,6 +51,7 @@ class _TaskListScreenState extends State<TaskListScreen>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _searchController = TextEditingController();
   Timer? _searchDebounce;
+  Timer? _accessRequestRefreshTimer;
 
   List<TaskItem> _tasks = <TaskItem>[];
   List<AppUser> _users = <AppUser>[];
@@ -65,8 +66,12 @@ class _TaskListScreenState extends State<TaskListScreen>
   String? _selectedDepartmentId;
   DateTime? _lastSyncAt;
   int _pendingOperations = 0;
+  int _pendingAccessRequests = 0;
   int _navigationIndex = 0;
   String _searchQuery = '';
+  bool _accessRequestCountLoading = false;
+  bool _accessRequestsOpen = false;
+  NotificationEvent? _handledNotificationEvent;
 
   String? get _statusFilter => _filter == 'TODAS' ? null : _filter;
 
@@ -96,17 +101,29 @@ class _TaskListScreenState extends State<TaskListScreen>
     WidgetsBinding.instance.addObserver(this);
     _repository = TaskRepository(widget.session.apiClient);
     _offlineMode = widget.session.offlineSession;
+    NotificationService.instance.lastEvent.addListener(
+      _handleNotificationEvent,
+    );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
       }
       _startServices();
+      _handleNotificationEvent();
     });
   }
 
   Future<void> _startServices() async {
     await _loadOfflineFirst();
+    await _refreshAccessRequestCount();
+    _accessRequestRefreshTimer?.cancel();
+    if (widget.session.user?.isAdmin ?? false) {
+      _accessRequestRefreshTimer = Timer.periodic(
+        const Duration(seconds: 45),
+        (_) => unawaited(_refreshAccessRequestCount()),
+      );
+    }
     _syncTriggerService.start(() async {
       await _synchronizeAndRefresh(showLoader: false);
     });
@@ -115,6 +132,7 @@ class _TaskListScreenState extends State<TaskListScreen>
       onTaskChanged: () {
         unawaited(_synchronizeAndRefresh(showLoader: false));
       },
+      onEvent: _handleRealtimeEvent,
       onConnectionChanged: (connected) {
         if (mounted && _realtimeConnected != connected) {
           setState(() => _realtimeConnected = connected);
@@ -127,17 +145,86 @@ class _TaskListScreenState extends State<TaskListScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_synchronizeAndRefresh(showLoader: false));
+      unawaited(_refreshAccessRequestCount());
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    NotificationService.instance.lastEvent.removeListener(
+      _handleNotificationEvent,
+    );
     _searchDebounce?.cancel();
+    _accessRequestRefreshTimer?.cancel();
     _searchController.dispose();
     _syncTriggerService.dispose();
     _realtimeService.dispose();
     super.dispose();
+  }
+
+  void _handleRealtimeEvent(Map<String, dynamic> payload) {
+    if (!(widget.session.user?.isAdmin ?? false)) {
+      return;
+    }
+    final eventName = payload['event']?.toString() ?? '';
+    if (!eventName.startsWith('access_request.')) {
+      return;
+    }
+    final serverCount = (payload['pending_count'] as num?)?.toInt();
+    if (mounted && serverCount != null && serverCount >= 0) {
+      setState(() => _pendingAccessRequests = serverCount);
+    }
+    unawaited(_refreshAccessRequestCount());
+  }
+
+  void _handleNotificationEvent() {
+    final event = NotificationService.instance.lastEvent.value;
+    if (event == null || identical(event, _handledNotificationEvent)) {
+      return;
+    }
+    _handledNotificationEvent = event;
+    if (!(widget.session.user?.isAdmin ?? false)) {
+      return;
+    }
+
+    final eventType = event.data['type']?.toString() ?? '';
+    if (!eventType.startsWith('access_request_')) {
+      return;
+    }
+    unawaited(_refreshAccessRequestCount());
+    if (event.openedFromNotification &&
+        eventType == 'access_request_created' &&
+        !_accessRequestsOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_accessRequestsOpen) {
+          unawaited(_openAccessRequests());
+        }
+      });
+    }
+  }
+
+  Future<void> _refreshAccessRequestCount() async {
+    if (!(widget.session.user?.isAdmin ?? false) ||
+        _accessRequestCountLoading ||
+        !widget.session.isAuthenticated) {
+      return;
+    }
+    _accessRequestCountLoading = true;
+    try {
+      final count = await _repository.accessRequestCount();
+      if (mounted && count != _pendingAccessRequests) {
+        setState(() => _pendingAccessRequests = count);
+      }
+    } on DioException catch (error) {
+      if (error.response != null && error.response?.statusCode != 403) {
+        debugPrint('[ACCESO] No fue posible actualizar el contador: $error');
+      }
+    } catch (error) {
+      debugPrint('[ACCESO] No fue posible actualizar el contador: $error');
+    } finally {
+      _accessRequestCountLoading = false;
+    }
   }
 
   Future<void> _loadOfflineFirst() async {
@@ -427,13 +514,22 @@ class _TaskListScreenState extends State<TaskListScreen>
   }
 
   Future<void> _openAccessRequests() async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => AccessRequestsScreen(session: widget.session),
-      ),
-    );
-    if (mounted) {
-      unawaited(_synchronizeAndRefresh(showLoader: false));
+    if (_accessRequestsOpen || !(widget.session.user?.isAdmin ?? false)) {
+      return;
+    }
+    _accessRequestsOpen = true;
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => AccessRequestsScreen(session: widget.session),
+        ),
+      );
+    } finally {
+      _accessRequestsOpen = false;
+      if (mounted) {
+        unawaited(_synchronizeAndRefresh(showLoader: false));
+        unawaited(_refreshAccessRequestCount());
+      }
     }
   }
 
@@ -569,11 +665,13 @@ class _TaskListScreenState extends State<TaskListScreen>
         onSync: () => _synchronizeAndRefresh(showLoader: false),
         syncing: _syncRunning,
         pendingOperations: _pendingOperations,
+        pendingAccessRequests: _pendingAccessRequests,
       ),
       drawer: CheckTapDrawer(
         user: widget.session.user!,
         isAdmin: widget.session.user!.isAdmin,
         pendingOperations: _pendingOperations,
+        pendingAccessRequests: _pendingAccessRequests,
         onAccessRequests: () => _closeDrawerThen(_openAccessRequests),
         onUsers: () => _closeDrawerThen(_openUsers),
         onDepartments: () => _closeDrawerThen(_openDepartments),
