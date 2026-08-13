@@ -1,13 +1,16 @@
 from datetime import UTC, datetime, timedelta
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
 
 from app.core.database import SessionLocal
 from app.main import app
 from app.models.task import Task
-from app.services import schema_compat
 from app.services.recurrence_service import generate_due_occurrences, next_occurrence
 
 
@@ -21,8 +24,21 @@ def _login(client: TestClient) -> dict[str, str]:
 
 
 
-def test_schema_compat_migration_is_additive_and_idempotent(monkeypatch) -> None:
+def test_alembic_recurrence_migration_is_additive_and_idempotent() -> None:
     legacy_engine = create_engine("sqlite+pysqlite:///:memory:")
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0007_task_recurrence.py"
+    )
+    spec = spec_from_file_location("checktap_recurrence_migration", migration_path)
+    assert spec is not None and spec.loader is not None
+    migration = module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.revision == "0007_task_recurrence"
+    assert migration.down_revision == "0006_user_self_registration"
+
     with legacy_engine.begin() as connection:
         connection.execute(
             text(
@@ -32,10 +48,10 @@ def test_schema_compat_migration_is_additive_and_idempotent(monkeypatch) -> None
                 ")"
             )
         )
-
-    monkeypatch.setattr(schema_compat, "engine", legacy_engine)
-    schema_compat.ensure_recurring_task_schema()
-    schema_compat.ensure_recurring_task_schema()
+        context = MigrationContext.configure(connection)
+        migration.op = Operations(context)
+        migration.upgrade()
+        migration.upgrade()
 
     columns = {
         column["name"] for column in inspect(legacy_engine).get_columns("tasks")
@@ -43,6 +59,7 @@ def test_schema_compat_migration_is_additive_and_idempotent(monkeypatch) -> None
     assert {
         "recurrence_type",
         "recurrence_interval",
+        "recurrence_unit",
         "recurrence_start_at",
         "recurrence_timezone",
         "next_occurrence_at",
@@ -53,6 +70,7 @@ def test_schema_compat_migration_is_additive_and_idempotent(monkeypatch) -> None
         "scheduled_for",
     }.issubset(columns)
     legacy_engine.dispose()
+
 
 def test_custom_every_fifteen_days_calculates_next_occurrence() -> None:
     start = datetime(2026, 8, 13, 12, 30, tzinfo=UTC)

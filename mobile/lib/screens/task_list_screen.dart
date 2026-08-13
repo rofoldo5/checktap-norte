@@ -289,12 +289,16 @@ class _TaskListScreenState extends State<TaskListScreen>
     }
     try {
       final allData = await _repository.loadCached();
-      await NotificationService.instance.syncTaskReminders(allData.tasks, user);
+      await NotificationService.instance.syncTaskReminders(
+        allData.tasks,
+        user,
+      );
     } catch (error, stackTrace) {
       debugPrint('[NOTIFY] No fue posible actualizar recordatorios: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
   }
+
 
   Future<void> _refreshAccessRequestCount() async {
     if (!(widget.session.user?.isAdmin ?? false) ||

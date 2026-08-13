@@ -1,3 +1,7 @@
+backend/alembic.ini
+backend/alembic/env.py
+backend/alembic/script.py.mako
+backend/alembic/versions/20260813_01_add_task_recurrence.py
 backend/app/api/sync.py
 backend/app/api/tasks.py
 backend/app/core/config.py
@@ -6,7 +10,6 @@ backend/app/main.py
 backend/app/models/task.py
 backend/app/schemas/task.py
 backend/app/services/recurrence_service.py
-backend/app/services/schema_compat.py
 backend/tests/test_recurrence.py
 deploy/portainer/.env.portainer.example
 deploy/portainer/01_GENERAR_VARIABLES.sh

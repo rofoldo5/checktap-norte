@@ -17,14 +17,14 @@ import '../models/app_user.dart';
 import '../models/task_item.dart';
 import '../models/task_recurrence.dart';
 
-const AndroidNotificationChannel
-checkTapNotificationChannel = AndroidNotificationChannel(
-  'checktap_high_importance',
-  'Notificaciones CheckTap',
-  description:
-      'Actividad, tareas programadas, solicitudes de acceso y reportes de CheckTap.',
-  importance: Importance.max,
-);
+const AndroidNotificationChannel checkTapNotificationChannel =
+    AndroidNotificationChannel(
+      'checktap_high_importance',
+      'Notificaciones CheckTap',
+      description:
+          'Actividad, tareas programadas, solicitudes de acceso y reportes de CheckTap.',
+      importance: Importance.max,
+    );
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -312,9 +312,7 @@ class NotificationService {
         await _localNotifications.cancelAllPendingNotifications();
       }
     } catch (error) {
-      debugPrint(
-        '[NOTIFY] No fue posible limpiar recordatorios locales: $error',
-      );
+      debugPrint('[NOTIFY] No fue posible limpiar recordatorios locales: $error');
     }
   }
 
@@ -388,7 +386,11 @@ class NotificationService {
     for (final task in masters) {
       final recurrence = task.recurrence;
       final location = _locationFor(recurrence.timezone);
-      final occurrences = _futureOccurrences(recurrence, location, limit: 16);
+      final occurrences = _futureOccurrences(
+        recurrence,
+        location,
+        limit: 16,
+      );
       for (final occurrence in occurrences) {
         final reminderLocal = occurrence.subtract(
           Duration(minutes: recurrence.reminderMinutesBefore),

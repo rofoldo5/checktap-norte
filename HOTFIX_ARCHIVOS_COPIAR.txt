@@ -1,0 +1,3 @@
+MIGRACION_ALEMBIC.md
+backend/alembic/versions/0007_task_recurrence.py
+backend/tests/test_recurrence.py

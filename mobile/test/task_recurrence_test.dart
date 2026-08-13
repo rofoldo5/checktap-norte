@@ -25,23 +25,20 @@ void main() {
     expect(recurrence.toApiJson(), containsPair('recurrence_interval', 15));
   });
 
-  test(
-    'una ocurrencia generada conserva la programacion como solo lectura',
-    () {
-      final recurrence = TaskRecurrence.fromJson(<String, dynamic>{
-        'recurrence_type': 'MONTHLY',
-        'recurrence_interval': 1,
-        'recurrence_timezone': 'UTC',
-        'recurrence_start_at': '2026-08-31T14:00:00Z',
-        'recurrence_series_id': 'master-1',
-        'is_recurrence_master': false,
-        'scheduled_for': '2026-09-30T14:00:00Z',
-      });
+  test('una ocurrencia generada conserva la programacion como solo lectura', () {
+    final recurrence = TaskRecurrence.fromJson(<String, dynamic>{
+      'recurrence_type': 'MONTHLY',
+      'recurrence_interval': 1,
+      'recurrence_timezone': 'UTC',
+      'recurrence_start_at': '2026-08-31T14:00:00Z',
+      'recurrence_series_id': 'master-1',
+      'is_recurrence_master': false,
+      'scheduled_for': '2026-09-30T14:00:00Z',
+    });
 
-      expect(recurrence.isRecurring, isTrue);
-      expect(recurrence.isMaster, isFalse);
-      expect(recurrence.canEditSchedule, isFalse);
-      expect(recurrence.label, 'Cada mes');
-    },
-  );
+    expect(recurrence.isRecurring, isTrue);
+    expect(recurrence.isMaster, isFalse);
+    expect(recurrence.canEditSchedule, isFalse);
+    expect(recurrence.label, 'Cada mes');
+  });
 }

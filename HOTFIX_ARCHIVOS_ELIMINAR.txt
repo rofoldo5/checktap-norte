@@ -1,0 +1,2 @@
+backend/alembic/versions/20260813_01_add_task_recurrence.py
+backend/app/services/schema_compat.py

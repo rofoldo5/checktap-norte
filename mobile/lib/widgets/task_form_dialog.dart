@@ -202,7 +202,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
       startAt: localStart.toUtc(),
       timezone: _timezoneName,
       notificationsEnabled: _notificationsEnabled,
-      reminderMinutesBefore: _notificationsEnabled ? _reminderMinutesBefore : 0,
+      reminderMinutesBefore: _notificationsEnabled
+          ? _reminderMinutesBefore
+          : 0,
       isMaster: true,
       scheduledFor: localStart.toUtc(),
     );
@@ -265,10 +267,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
           items: const <DropdownMenuItem<String>>[
             DropdownMenuItem(value: 'NONE', child: Text('No repetir')),
             DropdownMenuItem(value: 'DAILY', child: Text('Todos los días')),
-            DropdownMenuItem(
-              value: 'WEEKLY',
-              child: Text('Una vez a la semana'),
-            ),
+            DropdownMenuItem(value: 'WEEKLY', child: Text('Una vez a la semana')),
             DropdownMenuItem(value: 'BIWEEKLY', child: Text('Cada 15 días')),
             DropdownMenuItem(value: 'MONTHLY', child: Text('Una vez al mes')),
             DropdownMenuItem(value: 'CUSTOM', child: Text('Personalizado')),
@@ -414,9 +413,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
             _timezoneLoading
                 ? 'Detectando zona horaria…'
                 : 'Zona horaria: $_timezoneName',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: CheckTapColors.textMuted),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: CheckTapColors.textMuted,
+            ),
           ),
         ],
       ],

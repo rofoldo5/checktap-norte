@@ -13,7 +13,6 @@ from app.core.database import SessionLocal
 from app.models.department import Department
 from app.services.notification_service import notification_service
 from app.services.recurrence_service import generate_due_occurrences
-from app.services.schema_compat import ensure_recurring_task_schema
 from app.services.report_service import generate_department_daily_report
 
 logging.basicConfig(
@@ -100,7 +99,6 @@ def run_once() -> int:
 
 
 def main() -> None:
-    ensure_recurring_task_schema()
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
     logger.info(
