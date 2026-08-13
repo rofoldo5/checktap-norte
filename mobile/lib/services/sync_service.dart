@@ -2,8 +2,11 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:synchronized/synchronized.dart';
 
+import '../data/local/control_cache_service.dart';
 import '../data/local/offline_cache_service.dart';
 import '../data/local/sync_queue_store.dart';
+import '../models/control_item.dart';
+import '../models/sync_operation.dart';
 import '../models/task_item.dart';
 import 'task_service.dart';
 
@@ -30,12 +33,18 @@ class SyncSummary {
 }
 
 class SyncService {
-  SyncService(this._remote, {OfflineCacheService? cache, SyncQueueStore? queue})
-    : _cache = cache ?? OfflineCacheService(),
-      _queue = queue ?? SyncQueueStore();
+  SyncService(
+    this._remote, {
+    OfflineCacheService? cache,
+    ControlCacheService? controlCache,
+    SyncQueueStore? queue,
+  })  : _cache = cache ?? OfflineCacheService(),
+        _controlCache = controlCache ?? ControlCacheService(),
+        _queue = queue ?? SyncQueueStore();
 
   final TaskService _remote;
   final OfflineCacheService _cache;
+  final ControlCacheService _controlCache;
   final SyncQueueStore _queue;
   final Lock _lock = Lock();
 
@@ -66,81 +75,45 @@ class SyncService {
       }
 
       await _queue.markSyncing(localId);
-      await _cache.markTaskState(operation.entityId, LocalSyncState.syncing);
+      await _markState(operation, LocalSyncState.syncing);
 
       try {
         final result = await _remote.processOperation(operation);
         processed += 1;
 
         if (result.status == 'APPLIED' || result.status == 'DUPLICATE') {
-          final taskJson = result.taskJson;
-          if (taskJson == null) {
-            throw StateError('El servidor no devolvio la tarea sincronizada.');
-          }
-          final serverTask = TaskItem.fromJson(
-            taskJson,
-            syncState: LocalSyncState.synced,
-          );
-          final hasFollowing = await _queue.hasFollowingOperations(
-            operation.entityId,
-            localId,
-          );
-          if (hasFollowing) {
-            final localTask = await _cache.readTask(operation.entityId);
-            final merged =
-                localTask?.copyWith(
-                  version: serverTask.version,
-                  syncState: LocalSyncState.pending,
-                  syncError: null,
-                ) ??
-                serverTask.copyWith(syncState: LocalSyncState.pending);
-            await _cache.upsertTask(merged);
-          } else {
-            await _cache.upsertTask(serverTask);
-          }
+          await _applyServerResult(operation, result, localId);
           await _queue.remove(localId);
-          await _queue.updateFollowingBaseVersions(
-            operation.entityId,
-            localId,
-            serverTask.version,
-          );
+          final version = _resultVersion(result);
+          if (version != null) {
+            await _queue.updateFollowingBaseVersions(
+              operation.entityId,
+              localId,
+              version,
+            );
+          }
           applied += 1;
           continue;
         }
 
         if (result.status == 'CONFLICT') {
-          final taskJson = result.taskJson;
-          if (taskJson != null) {
-            final serverTask = TaskItem.fromJson(
-              taskJson,
-              syncState: LocalSyncState.conflict,
-              syncError: result.detail,
-            );
-            await _cache.upsertTask(serverTask);
+          await _applyConflictResult(operation, result, localId);
+          await _queue.remove(localId);
+          final version = _resultVersion(result);
+          if (version != null) {
             await _queue.updateFollowingBaseVersions(
               operation.entityId,
               localId,
-              serverTask.version,
-            );
-          } else {
-            await _cache.markTaskState(
-              operation.entityId,
-              LocalSyncState.conflict,
-              error: result.detail,
+              version,
             );
           }
-          await _queue.remove(localId);
           conflicts += 1;
           continue;
         }
 
         final detail = result.detail ?? 'La operacion no pudo sincronizarse.';
         await _queue.markError(operation, detail);
-        await _cache.markTaskState(
-          operation.entityId,
-          LocalSyncState.error,
-          error: detail,
-        );
+        await _markState(operation, LocalSyncState.error, error: detail);
         errors += 1;
         break;
       } on DioException catch (error) {
@@ -151,28 +124,21 @@ class SyncService {
         if (error.response == null || statusCode == null || statusCode >= 500) {
           serverAvailable = false;
           await _queue.markPending(localId);
-          await _cache.markTaskState(
-            operation.entityId,
-            LocalSyncState.pending,
-          );
+          await _markState(operation, LocalSyncState.pending);
           break;
         }
 
         final detail = _messageFromDio(error);
         await _queue.markError(operation, detail);
-        await _cache.markTaskState(
-          operation.entityId,
-          LocalSyncState.error,
-          error: detail,
-        );
+        await _markState(operation, LocalSyncState.error, error: detail);
         errors += 1;
         break;
       } catch (error, stackTrace) {
         debugPrint('[SYNC] Error procesando ${operation.operationId}: $error');
         debugPrintStack(stackTrace: stackTrace);
         await _queue.markError(operation, error.toString());
-        await _cache.markTaskState(
-          operation.entityId,
+        await _markState(
+          operation,
           LocalSyncState.error,
           error: error.toString(),
         );
@@ -191,6 +157,180 @@ class SyncService {
       serverAvailable: serverAvailable,
       unauthorized: unauthorized,
     );
+  }
+
+  bool _isControlOperation(SyncOperation operation) {
+    return operation.operationType.contains('CONTROL_');
+  }
+
+  Future<void> _markState(
+    SyncOperation operation,
+    LocalSyncState state, {
+    String? error,
+  }) {
+    if (_isControlOperation(operation)) {
+      return _controlCache.markEntityState(operation.entityId, state, error: error);
+    }
+    return _cache.markTaskState(operation.entityId, state, error: error);
+  }
+
+  int? _resultVersion(SyncOperationResult result) {
+    final source = result.taskJson ??
+        result.controlSectionJson ??
+        result.controlCheckJson;
+    return (source?['version'] as num?)?.toInt();
+  }
+
+  Future<void> _applyServerResult(
+    SyncOperation operation,
+    SyncOperationResult result,
+    int localId,
+  ) async {
+    if (!_isControlOperation(operation)) {
+      final taskJson = result.taskJson;
+      if (taskJson == null) {
+        throw StateError('El servidor no devolvio la tarea sincronizada.');
+      }
+      final serverTask = TaskItem.fromJson(
+        taskJson,
+        syncState: LocalSyncState.synced,
+      );
+      final hasFollowing = await _queue.hasFollowingOperations(
+        operation.entityId,
+        localId,
+      );
+      if (hasFollowing) {
+        final localTask = await _cache.readTask(operation.entityId);
+        final merged = localTask?.copyWith(
+              version: serverTask.version,
+              syncState: LocalSyncState.pending,
+              syncError: null,
+            ) ??
+            serverTask.copyWith(syncState: LocalSyncState.pending);
+        await _cache.upsertTask(merged);
+      } else {
+        await _cache.upsertTask(serverTask);
+      }
+      return;
+    }
+
+    if (result.deletedEntityId != null) {
+      if (operation.operationType == 'ARCHIVE_CONTROL_SECTION') {
+        await _controlCache.deleteSection(result.deletedEntityId!);
+      } else {
+        await _controlCache.deleteCheck(result.deletedEntityId!);
+      }
+      return;
+    }
+
+    final sectionJson = result.controlSectionJson;
+    if (sectionJson != null) {
+      final serverSection = ControlSectionItem.fromJson(
+        sectionJson,
+        syncState: LocalSyncState.synced,
+      );
+      final hasFollowing = await _queue.hasFollowingOperations(
+        operation.entityId,
+        localId,
+      );
+      if (hasFollowing) {
+        final localSections = await _controlCache.readSections();
+        ControlSectionItem? local;
+        for (final item in localSections) {
+          if (item.id == operation.entityId) {
+            local = item;
+            break;
+          }
+        }
+        await _controlCache.upsertSection(
+          (local ?? serverSection).copyWith(
+            version: serverSection.version,
+            syncState: LocalSyncState.pending,
+            syncError: null,
+          ),
+        );
+      } else {
+        await _controlCache.upsertSection(serverSection);
+      }
+      return;
+    }
+
+    final checkJson = result.controlCheckJson;
+    if (checkJson != null) {
+      final serverCheck = ControlCheckItem.fromJson(
+        checkJson,
+        syncState: LocalSyncState.synced,
+      );
+      final hasFollowing = await _queue.hasFollowingOperations(
+        operation.entityId,
+        localId,
+      );
+      if (hasFollowing) {
+        final local = await _controlCache.readCheck(operation.entityId);
+        await _controlCache.upsertCheck(
+          (local ?? serverCheck).copyWith(
+            version: serverCheck.version,
+            syncState: LocalSyncState.pending,
+            syncError: null,
+          ),
+        );
+      } else {
+        await _controlCache.upsertCheck(serverCheck);
+      }
+      return;
+    }
+
+    throw StateError('El servidor no devolvio la entidad sincronizada.');
+  }
+
+  Future<void> _applyConflictResult(
+    SyncOperation operation,
+    SyncOperationResult result,
+    int localId,
+  ) async {
+    if (!_isControlOperation(operation)) {
+      final taskJson = result.taskJson;
+      if (taskJson != null) {
+        await _cache.upsertTask(
+          TaskItem.fromJson(
+            taskJson,
+            syncState: LocalSyncState.conflict,
+            syncError: result.detail,
+          ),
+        );
+      } else {
+        await _cache.markTaskState(
+          operation.entityId,
+          LocalSyncState.conflict,
+          error: result.detail,
+        );
+      }
+      return;
+    }
+
+    if (result.controlSectionJson != null) {
+      await _controlCache.upsertSection(
+        ControlSectionItem.fromJson(
+          result.controlSectionJson!,
+          syncState: LocalSyncState.conflict,
+          syncError: result.detail,
+        ),
+      );
+    } else if (result.controlCheckJson != null) {
+      await _controlCache.upsertCheck(
+        ControlCheckItem.fromJson(
+          result.controlCheckJson!,
+          syncState: LocalSyncState.conflict,
+          syncError: result.detail,
+        ),
+      );
+    } else {
+      await _controlCache.markEntityState(
+        operation.entityId,
+        LocalSyncState.conflict,
+        error: result.detail,
+      );
+    }
   }
 
   String _messageFromDio(DioException error) {

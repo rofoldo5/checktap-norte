@@ -494,9 +494,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       _InfoRow(
                         icon: Icons.update_rounded,
                         label: 'Próxima ejecución',
-                        value: _formatDate(
-                          _task.recurrence.nextOccurrenceAt,
-                        ),
+                        value: _formatDate(_task.recurrence.nextOccurrenceAt),
                       ),
                     if (_task.recurrence.isRecurring)
                       _InfoRow(

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     auth,
     checklists,
+    controls,
     departments,
     devices,
     health,
@@ -48,6 +49,7 @@ app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(departments.router, prefix=settings.api_prefix)
 app.include_router(tasks.router, prefix=settings.api_prefix)
 app.include_router(checklists.router, prefix=settings.api_prefix)
+app.include_router(controls.router, prefix=settings.api_prefix)
 app.include_router(sync.router, prefix=settings.api_prefix)
 app.include_router(reports.router, prefix=settings.api_prefix)
 app.include_router(devices.router, prefix=settings.api_prefix)

@@ -79,12 +79,18 @@ class SyncOperationResult {
     required this.status,
     this.detail,
     this.taskJson,
+    this.controlSectionJson,
+    this.controlCheckJson,
+    this.deletedEntityId,
   });
 
   final String operationId;
   final String status;
   final String? detail;
   final Map<String, dynamic>? taskJson;
+  final Map<String, dynamic>? controlSectionJson;
+  final Map<String, dynamic>? controlCheckJson;
+  final String? deletedEntityId;
 
   factory SyncOperationResult.fromJson(Map<String, dynamic> json) {
     return SyncOperationResult(
@@ -94,6 +100,13 @@ class SyncOperationResult {
       taskJson: json['task'] == null
           ? null
           : Map<String, dynamic>.from(json['task'] as Map),
+      controlSectionJson: json['control_section'] == null
+          ? null
+          : Map<String, dynamic>.from(json['control_section'] as Map),
+      controlCheckJson: json['control_check'] == null
+          ? null
+          : Map<String, dynamic>.from(json['control_check'] as Map),
+      deletedEntityId: json['deleted_entity_id']?.toString(),
     );
   }
 }

@@ -14,6 +14,7 @@ import 'package:timezone/timezone.dart' as tz;
 import '../core/api_client.dart';
 import '../firebase_options.dart';
 import '../models/app_user.dart';
+import '../models/control_item.dart';
 import '../models/task_item.dart';
 import '../models/task_recurrence.dart';
 
@@ -22,7 +23,7 @@ const AndroidNotificationChannel checkTapNotificationChannel =
       'checktap_high_importance',
       'Notificaciones CheckTap',
       description:
-          'Actividad, tareas programadas, solicitudes de acceso y reportes de CheckTap.',
+          'Actividad, tareas programadas, controles, solicitudes de acceso y reportes de CheckTap.',
       importance: Importance.max,
     );
 
@@ -108,10 +109,12 @@ class NotificationService {
   bool _initialized = false;
   Future<void>? _initializationFuture;
   Future<void>? _reminderSyncFuture;
+  Future<void>? _controlReminderSyncFuture;
   bool _timezoneInitialized = false;
   String _deviceTimezoneName = 'UTC';
 
   bool get initialized => _initialized;
+  String get deviceTimezoneName => _deviceTimezoneName;
 
   void attachApiClient(ApiClient apiClient) {
     _apiClient = apiClient;
@@ -305,6 +308,27 @@ class NotificationService {
         : AndroidScheduleMode.inexactAllowWhileIdle;
   }
 
+  Future<void> _cancelReminderGroup(String group) async {
+    final preferences = await SharedPreferences.getInstance();
+    final key = 'checktap_local_reminder_ids_$group';
+    final rawIds = preferences.getStringList(key) ?? const <String>[];
+    for (final raw in rawIds) {
+      final id = int.tryParse(raw);
+      if (id != null) {
+        await _localNotifications.cancel(id: id);
+      }
+    }
+    await preferences.remove(key);
+  }
+
+  Future<void> _storeReminderGroup(String group, Iterable<int> ids) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList(
+      'checktap_local_reminder_ids_$group',
+      ids.map((id) => id.toString()).toList(growable: false),
+    );
+  }
+
   Future<void> clearTaskReminders() async {
     try {
       await initialize();
@@ -345,7 +369,7 @@ class NotificationService {
       return;
     }
 
-    await _localNotifications.cancelAllPendingNotifications();
+    await _cancelReminderGroup('task');
 
     final masters = tasks
         .where(
@@ -412,6 +436,7 @@ class NotificationService {
     candidates.sort((a, b) => a.reminder.compareTo(b.reminder));
     final selected = candidates.take(maxScheduled);
     var scheduledCount = 0;
+    final scheduledIds = <int>[];
     for (final candidate in selected) {
       final task = candidate.task;
       final recurrence = task.recurrence;
@@ -422,11 +447,12 @@ class NotificationService {
         'series_id': recurrence.seriesId ?? task.id,
         'scheduled_for': occurrence.toUtc().toIso8601String(),
       });
+      final reminderId = _stableReminderId(
+        'task:${recurrence.seriesId ?? task.id}',
+        occurrence.toUtc(),
+      );
       await _localNotifications.zonedSchedule(
-        id: _stableReminderId(
-          recurrence.seriesId ?? task.id,
-          occurrence.toUtc(),
-        ),
+        id: reminderId,
         title: task.title,
         body: 'Tarea programada: ${recurrence.label}.',
         scheduledDate: candidate.reminder,
@@ -434,13 +460,116 @@ class NotificationService {
         androidScheduleMode: scheduleMode,
         payload: payload,
       );
+      scheduledIds.add(reminderId);
       scheduledCount += 1;
     }
+    await _storeReminderGroup('task', scheduledIds);
 
     debugPrint(
       '[NOTIFY] $scheduledCount recordatorios programados '
       '(zona=$_deviceTimezoneName).',
     );
+  }
+
+  Future<void> syncControlReminders(
+    List<ControlCheckItem> checks,
+    AppUser currentUser,
+  ) async {
+    final running = _controlReminderSyncFuture;
+    if (running != null) {
+      await running;
+      return;
+    }
+    final future = _syncControlRemindersInternal(checks, currentUser);
+    _controlReminderSyncFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_controlReminderSyncFuture, future)) {
+        _controlReminderSyncFuture = null;
+      }
+    }
+  }
+
+  Future<void> _syncControlRemindersInternal(
+    List<ControlCheckItem> checks,
+    AppUser currentUser,
+  ) async {
+    await initialize();
+    if (!_initialized) {
+      return;
+    }
+    await _cancelReminderGroup('control');
+
+    final scheduleMode = await _scheduleModeForReminders();
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'checktap_high_importance',
+        'Notificaciones CheckTap',
+        channelDescription:
+            'Actividad, tareas programadas, controles y vencimientos de CheckTap.',
+        importance: Importance.max,
+        priority: Priority.high,
+        icon: 'ic_stat_checktap',
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    );
+
+    final now = tz.TZDateTime.now(tz.local);
+    final candidates = <({ControlCheckItem check, int minutes, tz.TZDateTime reminder})>[];
+    for (final check in checks) {
+      if (check.status == 'COMPLETADA') {
+        continue;
+      }
+      if (check.assignees.isNotEmpty &&
+          !check.assignees.any((user) => user.id == currentUser.id)) {
+        continue;
+      }
+      for (final minutes in check.reminderMinutes) {
+        final reminderUtc = check.dueAt.toUtc().subtract(Duration(minutes: minutes));
+        final reminder = tz.TZDateTime.from(reminderUtc, tz.local);
+        if (reminder.isAfter(now)) {
+          candidates.add((check: check, minutes: minutes, reminder: reminder));
+        }
+      }
+    }
+    candidates.sort((a, b) => a.reminder.compareTo(b.reminder));
+
+    final ids = <int>[];
+    for (final candidate in candidates.take(96)) {
+      final check = candidate.check;
+      final reminderId = _stableReminderId(
+        'control:${check.id}:${candidate.minutes}',
+        check.dueAt.toUtc(),
+      );
+      final payload = jsonEncode(<String, String>{
+        'type': 'scheduled_control_reminder',
+        'control_check_id': check.id,
+        'section_id': check.sectionId,
+      });
+      final dueLocal = check.dueAt.toLocal();
+      final dueLabel =
+          '${dueLocal.day.toString().padLeft(2, '0')}/'
+          '${dueLocal.month.toString().padLeft(2, '0')}/${dueLocal.year} '
+          '${dueLocal.hour.toString().padLeft(2, '0')}:'
+          '${dueLocal.minute.toString().padLeft(2, '0')}';
+      await _localNotifications.zonedSchedule(
+        id: reminderId,
+        title: check.title,
+        body: '${check.sectionName} · vence $dueLabel',
+        scheduledDate: candidate.reminder,
+        notificationDetails: details,
+        androidScheduleMode: scheduleMode,
+        payload: payload,
+      );
+      ids.add(reminderId);
+    }
+    await _storeReminderGroup('control', ids);
+    debugPrint('[NOTIFY] ${ids.length} recordatorios de controles programados.');
   }
 
   tz.Location _locationFor(String name) {
@@ -909,7 +1038,7 @@ class NotificationService {
         'checktap_high_importance',
         'Notificaciones CheckTap',
         channelDescription:
-            'Actividad, tareas programadas, solicitudes de acceso y reportes de CheckTap.',
+            'Actividad, tareas programadas, controles, solicitudes de acceso y reportes de CheckTap.',
         importance: Importance.max,
         priority: Priority.high,
         icon: 'ic_stat_checktap',
@@ -953,7 +1082,7 @@ class NotificationService {
         'checktap_high_importance',
         'Notificaciones CheckTap',
         channelDescription:
-            'Actividad, tareas programadas, solicitudes de acceso y reportes de CheckTap.',
+            'Actividad, tareas programadas, controles, solicitudes de acceso y reportes de CheckTap.',
         importance: Importance.max,
         priority: Priority.high,
         icon: 'ic_stat_checktap',

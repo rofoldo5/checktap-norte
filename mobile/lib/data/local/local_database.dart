@@ -8,7 +8,7 @@ class LocalDatabase {
 
   static final LocalDatabase instance = LocalDatabase._();
 
-  static const int _databaseVersion = 8;
+  static const int _databaseVersion = 9;
   static const String _databaseName = 'checktap_cache.db';
 
   Database? _database;
@@ -37,6 +37,7 @@ class LocalDatabase {
       onCreate: (database, version) async {
         await _createBaseTables(database);
         await _createOfflineTables(database);
+        await _createControlTables(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -163,6 +164,13 @@ class LocalDatabase {
             'value': '8',
           }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
+        if (oldVersion < 9) {
+          await _createControlTables(database);
+          await database.insert('cache_meta', <String, Object?>{
+            'key': 'offline_schema_version',
+            'value': '9',
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
       },
     );
   }
@@ -248,8 +256,58 @@ class LocalDatabase {
     );
     await database.insert('cache_meta', <String, Object?>{
       'key': 'offline_schema_version',
-      'value': '8',
+      'value': '9',
     });
+  }
+
+  Future<void> _createControlTables(Database database) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS cached_control_sections (
+        id TEXT PRIMARY KEY,
+        department_id TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        cached_at TEXT NOT NULL,
+        sync_state TEXT NOT NULL DEFAULT 'SYNCED',
+        server_version INTEGER NOT NULL DEFAULT 1,
+        last_error TEXT,
+        local_updated_at TEXT,
+        conflict_json TEXT
+      )
+    ''');
+    await database.execute(
+      'CREATE INDEX IF NOT EXISTS idx_cached_control_sections_department '
+      'ON cached_control_sections(department_id)',
+    );
+
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS cached_control_checks (
+        id TEXT PRIMARY KEY,
+        section_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        cached_at TEXT NOT NULL,
+        sync_state TEXT NOT NULL DEFAULT 'SYNCED',
+        server_version INTEGER NOT NULL DEFAULT 1,
+        last_error TEXT,
+        local_updated_at TEXT,
+        conflict_json TEXT
+      )
+    ''');
+    await database.execute(
+      'CREATE INDEX IF NOT EXISTS idx_cached_control_checks_section '
+      'ON cached_control_checks(section_id)',
+    );
+    await database.execute(
+      'CREATE INDEX IF NOT EXISTS idx_cached_control_checks_due '
+      'ON cached_control_checks(due_at)',
+    );
+    await database.execute(
+      'CREATE INDEX IF NOT EXISTS idx_cached_control_checks_status '
+      'ON cached_control_checks(status)',
+    );
   }
 
   Future<void> close() async {

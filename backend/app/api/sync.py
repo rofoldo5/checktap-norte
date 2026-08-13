@@ -12,9 +12,17 @@ from app.api.tasks import (
 )
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.models.control import ControlCheck, ControlSection
 from app.models.processed_operation import ProcessedOperation
 from app.models.task import Task
 from app.models.user import User
+from app.schemas.control import (
+    ControlCheckComplete,
+    ControlCheckCreate,
+    ControlCheckUpdate,
+    ControlSectionCreate,
+    ControlSectionUpdate,
+)
 from app.schemas.checklist import (
     ChecklistCreate,
     ChecklistItemCreate,
@@ -24,6 +32,23 @@ from app.schemas.checklist import (
 )
 from app.schemas.sync import SyncOperation, SyncOperationResult, SyncRequest, SyncResponse
 from app.schemas.task import TaskCreate, TaskRead, TaskUpdate
+from app.services.control_permissions import (
+    require_control_check_create,
+    require_control_check_edit,
+    require_control_check_work,
+    require_control_section_manage,
+)
+from app.services.control_service import (
+    check_read,
+    complete_control_check,
+    configure_control_schedule,
+    get_control_check,
+    get_control_section,
+    reopen_control_check,
+    section_read,
+    set_control_assignees,
+    update_control_check_from_payload,
+)
 from app.services.checklist_service import (
     create_checklist,
     create_item,
@@ -61,6 +86,21 @@ CHECKLIST_OPERATION_TYPES = {
     "DELETE_CHECKLIST_ITEM",
     "SET_CHECKLIST_ITEM_STATE",
     "SET_CHECKLIST_STATE",
+}
+
+
+CONTROL_SECTION_OPERATION_TYPES = {
+    "CREATE_CONTROL_SECTION",
+    "UPDATE_CONTROL_SECTION",
+    "ARCHIVE_CONTROL_SECTION",
+}
+
+CONTROL_CHECK_OPERATION_TYPES = {
+    "CREATE_CONTROL_CHECK",
+    "UPDATE_CONTROL_CHECK",
+    "COMPLETE_CONTROL_CHECK",
+    "REOPEN_CONTROL_CHECK",
+    "DELETE_CONTROL_CHECK",
 }
 
 
@@ -392,6 +432,244 @@ def _apply_checklist_operation(
     )
 
 
+
+def _control_section_conflict(
+    operation: SyncOperation,
+    section: ControlSection,
+    detail: str,
+) -> SyncOperationResult:
+    return SyncOperationResult(
+        operation_id=operation.operation_id,
+        status="CONFLICT",
+        detail=detail,
+        control_section=section_read(section),
+    )
+
+
+def _control_check_conflict(
+    operation: SyncOperation,
+    check: ControlCheck,
+    detail: str,
+) -> SyncOperationResult:
+    return SyncOperationResult(
+        operation_id=operation.operation_id,
+        status="CONFLICT",
+        detail=detail,
+        control_check=check_read(check),
+    )
+
+
+def _apply_control_section_operation(
+    operation: SyncOperation,
+    db: Session,
+    current_user: User,
+) -> tuple[SyncOperationResult, str | None]:
+    if operation.operation_type == "CREATE_CONTROL_SECTION":
+        require_control_section_manage(current_user)
+        existing = db.get(ControlSection, operation.entity_id)
+        if existing is not None:
+            section = get_control_section(db, operation.entity_id)
+            return (
+                SyncOperationResult(
+                    operation_id=operation.operation_id,
+                    status="DUPLICATE",
+                    detail="La seccion ya existe en el servidor",
+                    control_section=section_read(section),
+                ),
+                None,
+            )
+        payload = ControlSectionCreate.model_validate(
+            {**operation.payload, "id": operation.entity_id}
+        )
+        department = resolve_task_department(db, current_user, payload.department_id)
+        section = ControlSection(
+            id=operation.entity_id,
+            name=payload.name,
+            description=payload.description,
+            icon_key=payload.icon_key,
+            department_id=department.id,
+            created_by_id=current_user.id,
+            version=1,
+        )
+        db.add(section)
+        db.flush()
+        section = get_control_section(db, section.id)
+        return (
+            SyncOperationResult(
+                operation_id=operation.operation_id,
+                status="APPLIED",
+                control_section=section_read(section),
+            ),
+            "control.section.created",
+        )
+
+    section = get_control_section(db, operation.entity_id)
+    require_control_section_manage(current_user, section)
+    if section.version != operation.base_version:
+        return (
+            _control_section_conflict(
+                operation,
+                section,
+                (
+                    "La seccion cambio en otro dispositivo. "
+                    f"Version local {operation.base_version}; "
+                    f"version servidor {section.version}."
+                ),
+            ),
+            None,
+        )
+
+    if operation.operation_type == "ARCHIVE_CONTROL_SECTION":
+        section.is_active = False
+    else:
+        payload = ControlSectionUpdate.model_validate(operation.payload)
+        values = payload.model_dump(exclude_unset=True)
+        if "department_id" in values:
+            department = resolve_task_department(
+                db,
+                current_user,
+                values.pop("department_id"),
+            )
+            section.department_id = department.id
+        for key, value in values.items():
+            setattr(section, key, value)
+    section.version += 1
+    section.updated_at = datetime.now(UTC)
+    db.add(section)
+    db.flush()
+    section = get_control_section(db, section.id)
+    return (
+        SyncOperationResult(
+            operation_id=operation.operation_id,
+            status="APPLIED",
+            control_section=section_read(section),
+        ),
+        "control.section.archived"
+        if operation.operation_type == "ARCHIVE_CONTROL_SECTION"
+        else "control.section.updated",
+    )
+
+
+def _apply_control_check_operation(
+    operation: SyncOperation,
+    db: Session,
+    current_user: User,
+) -> tuple[SyncOperationResult, str | None]:
+    if operation.operation_type == "CREATE_CONTROL_CHECK":
+        existing = db.get(ControlCheck, operation.entity_id)
+        if existing is not None:
+            check = get_control_check(db, operation.entity_id)
+            return (
+                SyncOperationResult(
+                    operation_id=operation.operation_id,
+                    status="DUPLICATE",
+                    detail="El control ya existe en el servidor",
+                    control_check=check_read(check),
+                ),
+                None,
+            )
+        raw = dict(operation.payload)
+        section_id = UUID(str(raw.pop("section_id")))
+        section = get_control_section(db, section_id)
+        require_control_check_create(current_user, section)
+        payload = ControlCheckCreate.model_validate(
+            {**raw, "id": operation.entity_id}
+        )
+        check = ControlCheck(
+            id=operation.entity_id,
+            section_id=section.id,
+            title=payload.title,
+            description=payload.description,
+            reference=payload.reference,
+            contact=payload.contact,
+            notes=payload.notes,
+            priority=payload.priority,
+            status="PENDIENTE",
+            due_at=payload.due_at,
+            timezone=payload.timezone,
+            recurrence_type=payload.recurrence_type,
+            recurrence_interval=payload.recurrence_interval,
+            recurrence_unit=payload.recurrence_unit,
+            created_by_id=current_user.id,
+            version=1,
+        )
+        check.section = section
+        db.add(check)
+        db.flush()
+        configure_control_schedule(check, payload)
+        set_control_assignees(db, check, payload.assignee_ids)
+        db.flush()
+        check = get_control_check(db, check.id)
+        return (
+            SyncOperationResult(
+                operation_id=operation.operation_id,
+                status="APPLIED",
+                control_check=check_read(check),
+            ),
+            "control.check.created",
+        )
+
+    check = get_control_check(db, operation.entity_id)
+    if check.version != operation.base_version:
+        return (
+            _control_check_conflict(
+                operation,
+                check,
+                (
+                    "El control cambio en otro dispositivo. "
+                    f"Version local {operation.base_version}; "
+                    f"version servidor {check.version}."
+                ),
+            ),
+            None,
+        )
+
+    if operation.operation_type == "UPDATE_CONTROL_CHECK":
+        require_control_check_edit(current_user, check)
+        update_control_check_from_payload(
+            db,
+            check,
+            ControlCheckUpdate.model_validate(operation.payload),
+        )
+        event = "control.check.updated"
+    elif operation.operation_type == "COMPLETE_CONTROL_CHECK":
+        require_control_check_work(current_user, check)
+        payload = ControlCheckComplete.model_validate(operation.payload)
+        complete_control_check(check, current_user, notes=payload.notes)
+        event = "control.check.completed"
+    elif operation.operation_type == "REOPEN_CONTROL_CHECK":
+        require_control_check_work(current_user, check)
+        reopen_control_check(check)
+        event = "control.check.reopened"
+    elif operation.operation_type == "DELETE_CONTROL_CHECK":
+        require_control_check_edit(current_user, check)
+        deleted_id = check.id
+        db.delete(check)
+        db.flush()
+        return (
+            SyncOperationResult(
+                operation_id=operation.operation_id,
+                status="APPLIED",
+                deleted_entity_id=deleted_id,
+            ),
+            "control.check.deleted",
+        )
+    else:
+        raise ValueError(f"Operacion no soportada: {operation.operation_type}")
+
+    db.add(check)
+    db.flush()
+    check = get_control_check(db, check.id)
+    return (
+        SyncOperationResult(
+            operation_id=operation.operation_id,
+            status="APPLIED",
+            control_check=check_read(check),
+        ),
+        event,
+    )
+
+
 def _process_operation(
     operation: SyncOperation,
     db: Session,
@@ -413,6 +691,16 @@ def _process_operation(
             )
         return _stored_result(existing), None, None, None, True
 
+    if operation.operation_type in CONTROL_SECTION_OPERATION_TYPES:
+        result, control_event = _apply_control_section_operation(
+            operation, db, current_user
+        )
+        return result, control_event, None, None, False
+    if operation.operation_type in CONTROL_CHECK_OPERATION_TYPES:
+        result, control_event = _apply_control_check_operation(
+            operation, db, current_user
+        )
+        return result, control_event, None, None, False
     if operation.operation_type == "CREATE_TASK":
         result, event, notification_event, checklist_id = _apply_create(
             operation, db, current_user
@@ -491,7 +779,32 @@ async def process_operations(
             notification_event = None
             checklist_id = None
 
-        if event is not None and result.task is not None:
+        if event is not None and result.control_section is not None:
+            await manager.broadcast(
+                {
+                    "event": event,
+                    "section_id": str(result.control_section.id),
+                    "department_id": str(result.control_section.department.id),
+                    "version": result.control_section.version,
+                }
+            )
+        elif event is not None and result.control_check is not None:
+            await manager.broadcast(
+                {
+                    "event": event,
+                    "check_id": str(result.control_check.id),
+                    "section_id": str(result.control_check.section_id),
+                    "version": result.control_check.version,
+                }
+            )
+        elif event is not None and result.deleted_entity_id is not None:
+            await manager.broadcast(
+                {
+                    "event": event,
+                    "check_id": str(result.deleted_entity_id),
+                }
+            )
+        elif event is not None and result.task is not None:
             await manager.broadcast(
                 {
                     "event": event,

@@ -4,8 +4,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../core/task_permissions.dart';
+import '../data/repositories/control_repository.dart';
 import '../data/repositories/task_repository.dart';
 import '../models/app_user.dart';
+import '../models/control_item.dart';
 import '../models/department.dart';
 import '../models/task_item.dart';
 import '../services/background_sync.dart';
@@ -27,6 +29,8 @@ import '../ui/components/sync_banner.dart';
 import '../ui/components/task_card.dart';
 import '../ui/theme/checktap_colors.dart';
 import '../ui/theme/checktap_spacing.dart';
+import 'control_check_detail_screen.dart';
+import 'controls_screen.dart';
 import 'department_management_screen.dart';
 import 'access_requests_screen.dart';
 import 'notification_validation_screen.dart';
@@ -46,6 +50,7 @@ class TaskListScreen extends StatefulWidget {
 class _TaskListScreenState extends State<TaskListScreen>
     with WidgetsBindingObserver {
   late final TaskRepository _repository;
+  late final ControlRepository _controlsRepository;
   final RealtimeService _realtimeService = RealtimeService();
   final SyncTriggerService _syncTriggerService = SyncTriggerService();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -72,6 +77,8 @@ class _TaskListScreenState extends State<TaskListScreen>
   bool _accessRequestCountLoading = false;
   bool _accessRequestsOpen = false;
   NotificationEvent? _handledNotificationEvent;
+  int _controlsRefreshEpoch = 0;
+  bool _controlsRefreshRunning = false;
 
   String? get _statusFilter => _filter == 'TODAS' ? null : _filter;
 
@@ -100,6 +107,7 @@ class _TaskListScreenState extends State<TaskListScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _repository = TaskRepository(widget.session.apiClient);
+    _controlsRepository = ControlRepository(widget.session.apiClient);
     _offlineMode = widget.session.offlineSession;
     NotificationService.instance.lastEvent.addListener(
       _handleNotificationEvent,
@@ -164,10 +172,13 @@ class _TaskListScreenState extends State<TaskListScreen>
   }
 
   void _handleRealtimeEvent(Map<String, dynamic> payload) {
+    final eventName = payload['event']?.toString() ?? '';
+    if (eventName.startsWith('control.')) {
+      unawaited(_refreshControlsCache());
+    }
     if (!(widget.session.user?.isAdmin ?? false)) {
       return;
     }
-    final eventName = payload['event']?.toString() ?? '';
     if (!eventName.startsWith('access_request.')) {
       return;
     }
@@ -186,6 +197,18 @@ class _TaskListScreenState extends State<TaskListScreen>
     _handledNotificationEvent = event;
 
     final eventType = event.data['type']?.toString() ?? '';
+    final controlCheckId = event.data['control_check_id']?.toString();
+    if (event.openedFromNotification &&
+        eventType == 'scheduled_control_reminder' &&
+        controlCheckId != null &&
+        controlCheckId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_openControlFromNotification(controlCheckId));
+        }
+      });
+    }
+
     final taskId = event.data['task_id']?.toString();
     if (event.openedFromNotification &&
         taskId != null &&
@@ -224,6 +247,42 @@ class _TaskListScreenState extends State<TaskListScreen>
           unawaited(_openAccessRequests());
         }
       });
+    }
+  }
+
+  Future<void> _openControlFromNotification(String checkId) async {
+    try {
+      var check = await _controlsRepository.readCachedCheck(checkId);
+      if (check == null) {
+        check = await _controlsRepository.refreshCheck(checkId);
+      }
+      final snapshot = await _controlsRepository.loadCached();
+      ControlSectionItem? section;
+      for (final candidate in snapshot.sections) {
+        if (candidate.id == check.sectionId) {
+          section = candidate;
+          break;
+        }
+      }
+      if (section == null || !mounted) {
+        return;
+      }
+      final changed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute<bool>(
+          builder: (_) => ControlCheckDetailScreen(
+            session: widget.session,
+            section: section!,
+            check: check!,
+            users: _users,
+          ),
+        ),
+      );
+      if (changed == true && mounted) {
+        unawaited(_synchronizeAndRefresh(showLoader: false));
+      }
+    } catch (error, stackTrace) {
+      debugPrint('[NOTIFY] No fue posible abrir el control recordado: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
@@ -299,6 +358,32 @@ class _TaskListScreenState extends State<TaskListScreen>
     }
   }
 
+
+  Future<void> _refreshControlsCache() async {
+    if (_controlsRefreshRunning || !widget.session.isAuthenticated) {
+      return;
+    }
+    _controlsRefreshRunning = true;
+    try {
+      final snapshot = await _controlsRepository.refreshFromServer();
+      final user = widget.session.user;
+      if (user != null) {
+        unawaited(
+          NotificationService.instance.syncControlReminders(
+            snapshot.checks,
+            user,
+          ),
+        );
+      }
+      if (mounted) {
+        setState(() => _controlsRefreshEpoch += 1);
+      }
+    } catch (error) {
+      debugPrint('[CONTROLS] No fue posible actualizar la cache: $error');
+    } finally {
+      _controlsRefreshRunning = false;
+    }
+  }
 
   Future<void> _refreshAccessRequestCount() async {
     if (!(widget.session.user?.isAdmin ?? false) ||
@@ -407,6 +492,7 @@ class _TaskListScreenState extends State<TaskListScreen>
         departmentId: _selectedDepartmentId,
       );
       await widget.session.markServerAvailable();
+      unawaited(_refreshControlsCache());
       unawaited(
         NotificationService.instance.registerCurrentDevice().then<void>((_) {}),
       );
@@ -726,10 +812,6 @@ class _TaskListScreenState extends State<TaskListScreen>
   }
 
   void _selectNavigation(int index) {
-    if (index == 3) {
-      unawaited(_openReports());
-      return;
-    }
     if (index == 4) {
       _scaffoldKey.currentState?.openDrawer();
       return;
@@ -827,7 +909,14 @@ class _TaskListScreenState extends State<TaskListScreen>
       child: switch (_navigationIndex) {
         0 => _buildDashboardPage(),
         1 => _buildTasksPage(),
-        2 => _buildActivityPage(),
+        2 => ControlsScreen(
+          session: widget.session,
+          users: _users,
+          departments: _activeDepartments,
+          initialDepartmentId: _selectedDepartmentId,
+          refreshEpoch: _controlsRefreshEpoch,
+        ),
+        3 => _buildActivityPage(),
         _ => _buildDashboardPage(),
       },
     );
@@ -841,7 +930,7 @@ class _TaskListScreenState extends State<TaskListScreen>
       labelBehavior: mediaQuery.size.width < 360
           ? NavigationDestinationLabelBehavior.onlyShowSelected
           : NavigationDestinationLabelBehavior.alwaysShow,
-      selectedIndex: _navigationIndex.clamp(0, 2).toInt(),
+      selectedIndex: _navigationIndex.clamp(0, 3).toInt(),
       onDestinationSelected: _selectNavigation,
       destinations: const <NavigationDestination>[
         NavigationDestination(
@@ -855,14 +944,14 @@ class _TaskListScreenState extends State<TaskListScreen>
           label: 'Tareas',
         ),
         NavigationDestination(
+          icon: Icon(Icons.fact_check_outlined),
+          selectedIcon: Icon(Icons.fact_check_rounded),
+          label: 'Controles',
+        ),
+        NavigationDestination(
           icon: Icon(Icons.auto_graph_outlined),
           selectedIcon: Icon(Icons.auto_graph_rounded),
           label: 'Actividad',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.picture_as_pdf_outlined),
-          selectedIcon: Icon(Icons.picture_as_pdf_rounded),
-          label: 'Informes',
         ),
         NavigationDestination(
           icon: Icon(Icons.more_horiz_rounded),
@@ -877,7 +966,7 @@ class _TaskListScreenState extends State<TaskListScreen>
       minWidth: 82,
       groupAlignment: -0.75,
       labelType: NavigationRailLabelType.all,
-      selectedIndex: _navigationIndex.clamp(0, 2).toInt(),
+      selectedIndex: _navigationIndex.clamp(0, 3).toInt(),
       onDestinationSelected: _selectNavigation,
       destinations: const <NavigationRailDestination>[
         NavigationRailDestination(
@@ -891,13 +980,14 @@ class _TaskListScreenState extends State<TaskListScreen>
           label: Text('Tareas'),
         ),
         NavigationRailDestination(
+          icon: Icon(Icons.fact_check_outlined),
+          selectedIcon: Icon(Icons.fact_check_rounded),
+          label: Text('Controles'),
+        ),
+        NavigationRailDestination(
           icon: Icon(Icons.auto_graph_outlined),
           selectedIcon: Icon(Icons.auto_graph_rounded),
           label: Text('Actividad'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.picture_as_pdf_outlined),
-          label: Text('Informes'),
         ),
         NavigationRailDestination(
           icon: Icon(Icons.more_horiz_rounded),
@@ -1055,7 +1145,7 @@ class _TaskListScreenState extends State<TaskListScreen>
             title: 'Actividad del equipo',
             subtitle: 'Últimos movimientos registrados',
             actionLabel: 'Ver actividad',
-            onAction: () => setState(() => _navigationIndex = 2),
+            onAction: () => setState(() => _navigationIndex = 3),
           ),
           const SizedBox(height: CheckTapSpacing.sm),
           if (snapshot.activity.isEmpty)

@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "CheckTap"
-    app_version: str = "0.14.1"
+    app_version: str = "0.15.0"
     environment: str = "development"
     api_prefix: str = "/api/v1"
 

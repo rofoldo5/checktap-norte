@@ -11,6 +11,10 @@ os.environ["FIREBASE_ENABLED"] = "false"
 
 from app.core.database import Base, engine  # noqa: E402
 from app.models import (  # noqa: E402,F401
+    ControlCheck,
+    ControlCheckHistory,
+    ControlCheckReminder,
+    ControlSection,
     DailyReport,
     Department,
     DepartmentMember,

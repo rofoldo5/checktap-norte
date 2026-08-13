@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.control import ControlCheckRead, ControlSectionRead
 from app.schemas.task import TaskRead
 
 SyncOperationType = Literal[
@@ -19,6 +20,14 @@ SyncOperationType = Literal[
     "DELETE_CHECKLIST_ITEM",
     "SET_CHECKLIST_ITEM_STATE",
     "SET_CHECKLIST_STATE",
+    "CREATE_CONTROL_SECTION",
+    "UPDATE_CONTROL_SECTION",
+    "ARCHIVE_CONTROL_SECTION",
+    "CREATE_CONTROL_CHECK",
+    "UPDATE_CONTROL_CHECK",
+    "COMPLETE_CONTROL_CHECK",
+    "REOPEN_CONTROL_CHECK",
+    "DELETE_CONTROL_CHECK",
 ]
 SyncResultStatus = Literal["APPLIED", "DUPLICATE", "CONFLICT", "ERROR"]
 
@@ -40,6 +49,9 @@ class SyncOperationResult(BaseModel):
     status: SyncResultStatus
     detail: str | None = None
     task: TaskRead | None = None
+    control_section: ControlSectionRead | None = None
+    control_check: ControlCheckRead | None = None
+    deleted_entity_id: UUID | None = None
 
 
 class SyncResponse(BaseModel):
