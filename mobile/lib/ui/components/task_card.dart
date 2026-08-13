@@ -48,7 +48,8 @@ class CheckTapTaskCard extends StatelessWidget {
       child: Semantics(
         button: true,
         label:
-            '${task.title}. ${task.department.name}. ${task.status.replaceAll('_', ' ')}. Prioridad ${task.priority}.',
+            '${task.title}. ${task.department.name}. ${task.status.replaceAll('_', ' ')}. '
+            'Prioridad ${task.priority}. ${task.recurrence.label}.',
         child: Material(
           color: Colors.transparent,
           child: InkWell(
@@ -116,6 +117,37 @@ class CheckTapTaskCard extends StatelessWidget {
                           department: task.department.name,
                           status: task.status,
                         ),
+                        if (task.recurrence.isRecurring) ...<Widget>[
+                          const SizedBox(height: CheckTapSpacing.xs),
+                          Row(
+                            children: <Widget>[
+                              const Icon(
+                                Icons.repeat_rounded,
+                                size: 16,
+                                color: CheckTapColors.primary,
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  task.recurrence.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: CheckTapColors.primary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ),
+                              if (task.recurrence.notificationsEnabled)
+                                const Icon(
+                                  Icons.notifications_active_outlined,
+                                  size: 16,
+                                  color: CheckTapColors.textMuted,
+                                ),
+                            ],
+                          ),
+                        ],
                         if (task.checklists.isNotEmpty) ...<Widget>[
                           const SizedBox(height: CheckTapSpacing.sm),
                           _ChecklistProgress(task: task),

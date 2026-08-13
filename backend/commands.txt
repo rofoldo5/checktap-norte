@@ -2,5 +2,12 @@ flutter run \
   --dart-define=API_BASE_URL=http://192.168.30.42:8082
 
 
-
+flutter build apk \
+  --release \
+  --split-per-abi \
+  --dart-define=API_BASE_URL=http://192.168.30.42:8082
+  
   //PENDIENTE DARLE RUN AL PAQUETE
+
+
+  ./APLICAR_HOTFIX.sh "$HOME/Documents/checktap/system

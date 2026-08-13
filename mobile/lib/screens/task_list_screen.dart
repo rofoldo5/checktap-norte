@@ -184,11 +184,34 @@ class _TaskListScreenState extends State<TaskListScreen>
       return;
     }
     _handledNotificationEvent = event;
+
+    final eventType = event.data['type']?.toString() ?? '';
+    final taskId = event.data['task_id']?.toString();
+    if (event.openedFromNotification &&
+        taskId != null &&
+        taskId.isNotEmpty &&
+        (eventType == 'scheduled_task_reminder' ||
+            eventType.startsWith('task_'))) {
+      final seriesId = event.data['series_id']?.toString();
+      final scheduledFor = DateTime.tryParse(
+        event.data['scheduled_for']?.toString() ?? '',
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(
+            _openTaskFromNotification(
+              taskId,
+              seriesId: seriesId,
+              scheduledFor: scheduledFor,
+            ),
+          );
+        }
+      });
+    }
+
     if (!(widget.session.user?.isAdmin ?? false)) {
       return;
     }
-
-    final eventType = event.data['type']?.toString() ?? '';
     if (!eventType.startsWith('access_request_')) {
       return;
     }
@@ -201,6 +224,75 @@ class _TaskListScreenState extends State<TaskListScreen>
           unawaited(_openAccessRequests());
         }
       });
+    }
+  }
+
+  Future<void> _openTaskFromNotification(
+    String taskId, {
+    String? seriesId,
+    DateTime? scheduledFor,
+  }) async {
+    try {
+      final data = await _repository.loadCached();
+      TaskItem? exactOccurrence;
+      TaskItem? exactTask;
+      TaskItem? latestSeriesOccurrence;
+      final effectiveSeriesId = (seriesId == null || seriesId.isEmpty)
+          ? taskId
+          : seriesId;
+
+      for (final candidate in data.tasks) {
+        if (candidate.id == taskId) {
+          exactTask = candidate;
+        }
+        if (candidate.recurrence.seriesId != effectiveSeriesId &&
+            candidate.id != effectiveSeriesId) {
+          continue;
+        }
+
+        if (scheduledFor != null && candidate.recurrence.scheduledFor != null) {
+          final difference = candidate.recurrence.scheduledFor!
+              .toUtc()
+              .difference(scheduledFor.toUtc())
+              .abs();
+          if (difference <= const Duration(minutes: 2)) {
+            exactOccurrence = candidate;
+            break;
+          }
+        }
+
+        final currentScheduled = candidate.recurrence.scheduledFor;
+        final latestScheduled = latestSeriesOccurrence?.recurrence.scheduledFor;
+        if (latestSeriesOccurrence == null ||
+            (currentScheduled != null &&
+                (latestScheduled == null ||
+                    currentScheduled.isAfter(latestScheduled)))) {
+          latestSeriesOccurrence = candidate;
+        }
+      }
+
+      final task = exactOccurrence ?? exactTask ?? latestSeriesOccurrence;
+      if (task == null || !mounted) {
+        return;
+      }
+      await _openTask(task);
+    } catch (error, stackTrace) {
+      debugPrint('[NOTIFY] No fue posible abrir la tarea recordada: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  Future<void> _syncLocalTaskReminders() async {
+    final user = widget.session.user;
+    if (user == null) {
+      return;
+    }
+    try {
+      final allData = await _repository.loadCached();
+      await NotificationService.instance.syncTaskReminders(allData.tasks, user);
+    } catch (error, stackTrace) {
+      debugPrint('[NOTIFY] No fue posible actualizar recordatorios: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
@@ -280,6 +372,7 @@ class _TaskListScreenState extends State<TaskListScreen>
       _usingCachedData = cachedData;
       _loading = false;
     });
+    unawaited(_syncLocalTaskReminders());
   }
 
   Future<void> _synchronizeAndRefresh({required bool showLoader}) async {
@@ -327,6 +420,7 @@ class _TaskListScreenState extends State<TaskListScreen>
         _usingCachedData = false;
         _error = null;
       });
+      unawaited(_syncLocalTaskReminders());
 
       if (summary.conflicts > 0 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -377,6 +471,7 @@ class _TaskListScreenState extends State<TaskListScreen>
 
   Future<void> _returnToLogin() async {
     await NotificationService.instance.unregisterCurrentDevice();
+    await NotificationService.instance.clearTaskReminders();
     await widget.session.logout();
     NotificationService.instance.detachApiClient();
     if (!mounted) {
@@ -456,6 +551,7 @@ class _TaskListScreenState extends State<TaskListScreen>
             priority: value.priority,
             department: value.department,
             assignees: value.assignees,
+            recurrence: value.recurrence,
           );
         },
       ),

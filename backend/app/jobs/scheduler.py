@@ -12,6 +12,8 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.department import Department
 from app.services.notification_service import notification_service
+from app.services.recurrence_service import generate_due_occurrences
+from app.services.schema_compat import ensure_recurring_task_schema
 from app.services.report_service import generate_department_daily_report
 
 logging.basicConfig(
@@ -33,13 +35,33 @@ def _due(now: datetime) -> bool:
 
 
 def run_once() -> int:
+    action_count = 0
+
+    # Las ocurrencias recurrentes se generan aun si los informes diarios estan
+    # desactivados. De ese modo la recurrencia no depende de otra funcion del
+    # scheduler.
+    with SessionLocal() as db:
+        try:
+            generated_tasks = generate_due_occurrences(db)
+            action_count += len(generated_tasks)
+            for task in generated_tasks:
+                logger.info(
+                    "Ocurrencia recurrente creada: tarea=%s serie=%s programada=%s",
+                    task.id,
+                    task.recurrence_series_id,
+                    task.scheduled_for,
+                )
+        except Exception:
+            db.rollback()
+            logger.exception("No fue posible generar tareas recurrentes")
+
     if not settings.daily_report_enabled:
-        return 0
+        return action_count
+
     local_now = datetime.now(ZoneInfo(settings.report_timezone))
     if not _due(local_now):
-        return 0
+        return action_count
 
-    generated_count = 0
     with SessionLocal() as db:
         departments = list(
             db.scalars(
@@ -57,7 +79,7 @@ def run_once() -> int:
                 )
                 if not generated:
                     continue
-                generated_count += 1
+                action_count += 1
                 delivery = notification_service.notify_report_ready(
                     department_id=department.id,
                     report_id=report.id,
@@ -74,10 +96,11 @@ def run_once() -> int:
             except Exception:
                 db.rollback()
                 logger.exception("No fue posible generar el informe de %s", department.name)
-    return generated_count
+    return action_count
 
 
 def main() -> None:
+    ensure_recurring_task_schema()
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
     logger.info(

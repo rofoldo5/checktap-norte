@@ -19,6 +19,11 @@ from app.services.department_service import (
     validate_department_users,
 )
 from app.services.notification_service import notification_service
+from app.services.recurrence_service import (
+    configure_recurrence,
+    configure_recurrence_from_changes,
+    pop_recurrence_changes,
+)
 from app.services.task_permissions import (
     require_task_edit,
     require_task_reopen,
@@ -129,6 +134,20 @@ async def create_task(
     )
     db.add(task)
     db.flush()
+    try:
+        configure_recurrence(
+            task,
+            recurrence_type=payload.recurrence_type,
+            recurrence_interval=payload.recurrence_interval,
+            recurrence_unit=payload.recurrence_unit,
+            recurrence_start_at=payload.recurrence_start_at,
+            recurrence_timezone=payload.recurrence_timezone,
+            notifications_enabled=payload.notifications_enabled,
+            reminder_minutes_before=payload.reminder_minutes_before,
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     set_task_assignees(db, task, payload.assignee_ids)
     db.commit()
     task = get_task_or_404(db, task.id, current_user)
@@ -163,6 +182,17 @@ async def update_task(
 
     assignee_ids = values.pop("assignee_ids", None)
     values.pop("assigned_to_id", None)
+    recurrence_changes = pop_recurrence_changes(values)
+    recurrence_changed = False
+    if recurrence_changes:
+        try:
+            recurrence_changed = configure_recurrence_from_changes(
+                task,
+                recurrence_changes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     department_changed = False
     if "department_id" in values:
         department = resolve_task_department(db, current_user, values["department_id"])
@@ -178,7 +208,7 @@ async def update_task(
     if assignee_ids is not None:
         set_task_assignees(db, task, assignee_ids)
 
-    if values or assignee_ids is not None:
+    if values or assignee_ids is not None or recurrence_changed:
         task.version += 1
         task.updated_at = datetime.now(UTC)
     db.add(task)
@@ -192,7 +222,7 @@ async def update_task(
             "version": task.version,
         }
     )
-    if values or assignee_ids is not None:
+    if values or assignee_ids is not None or recurrence_changed:
         schedule_task_notification(
             background_tasks,
             event_type="task_updated",

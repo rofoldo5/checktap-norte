@@ -19,10 +19,12 @@ from app.api import (
 from app.core.config import settings
 from app.services.bootstrap import create_bootstrap_admin
 from app.services.notification_service import notification_service
+from app.services.schema_compat import ensure_recurring_task_schema
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    ensure_recurring_task_schema()
     create_bootstrap_admin()
     notification_service.initialize()
     yield

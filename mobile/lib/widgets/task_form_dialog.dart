@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 
 import '../core/form_validators.dart';
 import '../models/app_user.dart';
 import '../models/department.dart';
+import '../models/task_recurrence.dart';
 import '../ui/components/section_header.dart';
 import '../ui/components/user_avatar.dart';
 import '../ui/theme/checktap_colors.dart';
@@ -15,6 +17,7 @@ class TaskFormValue {
     required this.priority,
     required this.department,
     required this.assignees,
+    required this.recurrence,
   });
 
   final String title;
@@ -22,6 +25,7 @@ class TaskFormValue {
   final String priority;
   final DepartmentSummary department;
   final List<AppUser> assignees;
+  final TaskRecurrence recurrence;
 }
 
 class TaskFormDialog extends StatefulWidget {
@@ -37,6 +41,8 @@ class TaskFormDialog extends StatefulWidget {
     this.initialDescription = '',
     this.initialPriority = 'MEDIA',
     this.initialAssigneeIds = const <String>{},
+    this.initialRecurrence = TaskRecurrence.none,
+    this.recurrenceReadOnly = false,
     super.key,
   });
 
@@ -49,6 +55,8 @@ class TaskFormDialog extends StatefulWidget {
   final String initialDescription;
   final String initialPriority;
   final Set<String> initialAssigneeIds;
+  final TaskRecurrence initialRecurrence;
+  final bool recurrenceReadOnly;
   final Future<void> Function(TaskFormValue value) onSubmit;
   final String Function(Object error) errorMessage;
 
@@ -63,6 +71,15 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
   late final Set<String> _selectedAssigneeIds;
   late String _departmentId;
   late String _priority;
+  late String _recurrencePreset;
+  late final TextEditingController _customIntervalController;
+  late String _customUnit;
+  late DateTime _recurrenceDate;
+  late TimeOfDay _recurrenceTime;
+  late bool _notificationsEnabled;
+  late int _reminderMinutesBefore;
+  String _timezoneName = 'UTC';
+  bool _timezoneLoading = false;
   bool _saving = false;
   String? _serverError;
 
@@ -81,14 +98,329 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
         : widget.departments.first.id;
     _priority = widget.initialPriority;
     _selectedAssigneeIds = Set<String>.of(widget.initialAssigneeIds);
+
+    final recurrence = widget.initialRecurrence;
+    _recurrencePreset = _presetFor(recurrence);
+    _customIntervalController = TextEditingController(
+      text: recurrence.type == 'CUSTOM' ? recurrence.interval.toString() : '15',
+    );
+    _customUnit = recurrence.unit ?? 'DAYS';
+    final defaultLocal = DateTime.now().add(const Duration(hours: 1));
+    final startLocal = recurrence.startAt?.toLocal() ?? defaultLocal;
+    _recurrenceDate = DateTime(
+      startLocal.year,
+      startLocal.month,
+      startLocal.day,
+    );
+    _recurrenceTime = TimeOfDay.fromDateTime(startLocal);
+    _notificationsEnabled = recurrence.notificationsEnabled;
+    _reminderMinutesBefore = recurrence.reminderMinutesBefore;
+    _timezoneName = recurrence.isRecurring ? recurrence.timezone : 'UTC';
     _removeUnavailableAssignees();
+    if (!recurrence.isRecurring) {
+      _loadDeviceTimezone();
+    }
   }
 
   @override
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
+    _customIntervalController.dispose();
     super.dispose();
+  }
+
+  String _presetFor(TaskRecurrence recurrence) {
+    if (!recurrence.isRecurring) {
+      return 'NONE';
+    }
+    if (recurrence.type == 'CUSTOM' &&
+        recurrence.interval == 15 &&
+        recurrence.unit == 'DAYS') {
+      return 'BIWEEKLY';
+    }
+    return recurrence.type;
+  }
+
+  Future<void> _loadDeviceTimezone() async {
+    if (_timezoneLoading) {
+      return;
+    }
+    _timezoneLoading = true;
+    try {
+      final info = await FlutterTimezone.getLocalTimezone();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        if (info.identifier.trim().isNotEmpty) {
+          _timezoneName = info.identifier;
+        }
+        _timezoneLoading = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _timezoneLoading = false);
+      } else {
+        _timezoneLoading = false;
+      }
+      // UTC remains a safe fallback if the native timezone cannot be read.
+    }
+  }
+
+  TaskRecurrence _buildRecurrence() {
+    if (widget.recurrenceReadOnly) {
+      return widget.initialRecurrence;
+    }
+    if (_recurrencePreset == 'NONE') {
+      return TaskRecurrence(timezone: _timezoneName);
+    }
+
+    var type = _recurrencePreset;
+    var interval = 1;
+    String? unit;
+    if (_recurrencePreset == 'BIWEEKLY') {
+      type = 'CUSTOM';
+      interval = 15;
+      unit = 'DAYS';
+    } else if (_recurrencePreset == 'CUSTOM') {
+      interval = int.tryParse(_customIntervalController.text.trim()) ?? 1;
+      unit = _customUnit;
+    }
+
+    final localStart = DateTime(
+      _recurrenceDate.year,
+      _recurrenceDate.month,
+      _recurrenceDate.day,
+      _recurrenceTime.hour,
+      _recurrenceTime.minute,
+    );
+    return TaskRecurrence(
+      type: type,
+      interval: interval,
+      unit: unit,
+      startAt: localStart.toUtc(),
+      timezone: _timezoneName,
+      notificationsEnabled: _notificationsEnabled,
+      reminderMinutesBefore: _notificationsEnabled ? _reminderMinutesBefore : 0,
+      isMaster: true,
+      scheduledFor: localStart.toUtc(),
+    );
+  }
+
+  Future<void> _pickRecurrenceDate() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _recurrenceDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 3650)),
+    );
+    if (selected != null && mounted) {
+      setState(() => _recurrenceDate = selected);
+    }
+  }
+
+  Future<void> _pickRecurrenceTime() async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: _recurrenceTime,
+    );
+    if (selected != null && mounted) {
+      setState(() => _recurrenceTime = selected);
+    }
+  }
+
+  Widget _buildRecurrenceSection(BuildContext context) {
+    final disabled = _saving || widget.recurrenceReadOnly;
+    final recurring = _recurrencePreset != 'NONE';
+    final locale = MaterialLocalizations.of(context);
+    final dateLabel = locale.formatMediumDate(_recurrenceDate);
+    final timeLabel = locale.formatTimeOfDay(_recurrenceTime);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        const SectionHeader(
+          title: 'Programación y recordatorios',
+          subtitle:
+              'Repite la tarea conservando cada ejecución y sus subchecks en el historial.',
+        ),
+        const SizedBox(height: CheckTapSpacing.md),
+        if (widget.recurrenceReadOnly) ...<Widget>[
+          const _InfoMessage(
+            icon: Icons.info_outline_rounded,
+            message:
+                'Esta es una ejecución generada. La programación se modifica desde la tarea original de la serie.',
+          ),
+          const SizedBox(height: CheckTapSpacing.md),
+        ],
+        DropdownButtonFormField<String>(
+          key: ValueKey<String>(_recurrencePreset),
+          initialValue: _recurrencePreset,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Repetir tarea',
+            prefixIcon: Icon(Icons.repeat_rounded),
+          ),
+          items: const <DropdownMenuItem<String>>[
+            DropdownMenuItem(value: 'NONE', child: Text('No repetir')),
+            DropdownMenuItem(value: 'DAILY', child: Text('Todos los días')),
+            DropdownMenuItem(
+              value: 'WEEKLY',
+              child: Text('Una vez a la semana'),
+            ),
+            DropdownMenuItem(value: 'BIWEEKLY', child: Text('Cada 15 días')),
+            DropdownMenuItem(value: 'MONTHLY', child: Text('Una vez al mes')),
+            DropdownMenuItem(value: 'CUSTOM', child: Text('Personalizado')),
+          ],
+          onChanged: disabled
+              ? null
+              : (value) {
+                  if (value != null) {
+                    setState(() {
+                      _recurrencePreset = value;
+                      if (value == 'NONE') {
+                        _notificationsEnabled = false;
+                      }
+                    });
+                  }
+                },
+        ),
+        if (recurring) ...<Widget>[
+          const SizedBox(height: CheckTapSpacing.md),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final stack = constraints.maxWidth < 430;
+              final dateField = _SchedulePicker(
+                icon: Icons.calendar_today_outlined,
+                label: 'Fecha de inicio',
+                value: dateLabel,
+                enabled: !disabled,
+                onTap: _pickRecurrenceDate,
+              );
+              final timeField = _SchedulePicker(
+                icon: Icons.schedule_rounded,
+                label: 'Hora',
+                value: timeLabel,
+                enabled: !disabled,
+                onTap: _pickRecurrenceTime,
+              );
+              if (stack) {
+                return Column(
+                  children: <Widget>[
+                    dateField,
+                    const SizedBox(height: CheckTapSpacing.sm),
+                    timeField,
+                  ],
+                );
+              }
+              return Row(
+                children: <Widget>[
+                  Expanded(child: dateField),
+                  const SizedBox(width: CheckTapSpacing.sm),
+                  Expanded(child: timeField),
+                ],
+              );
+            },
+          ),
+          if (_recurrencePreset == 'CUSTOM') ...<Widget>[
+            const SizedBox(height: CheckTapSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(
+                  child: TextFormField(
+                    controller: _customIntervalController,
+                    enabled: !disabled,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Repetir cada',
+                      prefixIcon: Icon(Icons.numbers_rounded),
+                    ),
+                    validator: (value) {
+                      if (_recurrencePreset != 'CUSTOM') {
+                        return null;
+                      }
+                      final number = int.tryParse(value?.trim() ?? '');
+                      if (number == null || number < 1 || number > 365) {
+                        return 'Use un valor de 1 a 365.';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                const SizedBox(width: CheckTapSpacing.sm),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey<String>(_customUnit),
+                    initialValue: _customUnit,
+                    decoration: const InputDecoration(labelText: 'Unidad'),
+                    items: const <DropdownMenuItem<String>>[
+                      DropdownMenuItem(value: 'DAYS', child: Text('Días')),
+                      DropdownMenuItem(value: 'WEEKS', child: Text('Semanas')),
+                      DropdownMenuItem(value: 'MONTHS', child: Text('Meses')),
+                    ],
+                    onChanged: disabled
+                        ? null
+                        : (value) {
+                            if (value != null) {
+                              setState(() => _customUnit = value);
+                            }
+                          },
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: CheckTapSpacing.md),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: _notificationsEnabled,
+            onChanged: disabled
+                ? null
+                : (value) => setState(() => _notificationsEnabled = value),
+            secondary: const Icon(Icons.notifications_active_outlined),
+            title: const Text('Notificar a los responsables'),
+            subtitle: const Text(
+              'El teléfono conserva los próximos avisos para poder recordarlos también sin conexión.',
+            ),
+          ),
+          if (_notificationsEnabled) ...<Widget>[
+            const SizedBox(height: CheckTapSpacing.sm),
+            DropdownButtonFormField<int>(
+              key: ValueKey<int>(_reminderMinutesBefore),
+              initialValue: _reminderMinutesBefore,
+              decoration: const InputDecoration(
+                labelText: 'Avisar',
+                prefixIcon: Icon(Icons.alarm_rounded),
+              ),
+              items: const <DropdownMenuItem<int>>[
+                DropdownMenuItem(value: 0, child: Text('A la hora programada')),
+                DropdownMenuItem(value: 15, child: Text('15 minutos antes')),
+                DropdownMenuItem(value: 60, child: Text('1 hora antes')),
+                DropdownMenuItem(value: 1440, child: Text('1 día antes')),
+              ],
+              onChanged: disabled
+                  ? null
+                  : (value) {
+                      if (value != null) {
+                        setState(() => _reminderMinutesBefore = value);
+                      }
+                    },
+            ),
+          ],
+          const SizedBox(height: CheckTapSpacing.sm),
+          Text(
+            _timezoneLoading
+                ? 'Detectando zona horaria…'
+                : 'Zona horaria: $_timezoneName',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: CheckTapColors.textMuted),
+          ),
+        ],
+      ],
+    );
   }
 
   DepartmentSummary? _departmentById(String id) {
@@ -146,6 +478,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
           assignees: availableUsers
               .where((user) => _selectedAssigneeIds.contains(user.id))
               .toList(growable: false),
+          recurrence: _buildRecurrence(),
         ),
       );
       if (mounted) {
@@ -176,6 +509,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
       departmentUsers: _usersForDepartment(_departmentId),
       selectedAssigneeIds: _selectedAssigneeIds,
       priority: _priority,
+      recurrenceSection: _buildRecurrenceSection(context),
       saving: _saving,
       serverError: _serverError,
       onDepartmentChanged: (value) {
@@ -223,6 +557,7 @@ class _TaskFormContent extends StatelessWidget {
     required this.departmentUsers,
     required this.selectedAssigneeIds,
     required this.priority,
+    required this.recurrenceSection,
     required this.saving,
     required this.serverError,
     required this.onDepartmentChanged,
@@ -242,6 +577,7 @@ class _TaskFormContent extends StatelessWidget {
   final List<AppUser> departmentUsers;
   final Set<String> selectedAssigneeIds;
   final String priority;
+  final Widget recurrenceSection;
   final bool saving;
   final String? serverError;
   final ValueChanged<String> onDepartmentChanged;
@@ -493,6 +829,8 @@ class _TaskFormContent extends StatelessWidget {
                 );
               },
             ),
+            const SizedBox(height: CheckTapSpacing.xl),
+            recurrenceSection,
             if (serverError != null) ...<Widget>[
               const SizedBox(height: CheckTapSpacing.lg),
               _InfoMessage(
@@ -503,6 +841,38 @@ class _TaskFormContent extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SchedulePicker extends StatelessWidget {
+  const _SchedulePicker({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(CheckTapRadius.md),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon),
+          enabled: enabled,
+        ),
+        child: Text(value),
       ),
     );
   }

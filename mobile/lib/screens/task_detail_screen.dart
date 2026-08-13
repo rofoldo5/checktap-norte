@@ -106,6 +106,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         initialDescription: _task.description ?? '',
         initialPriority: _task.priority,
         initialAssigneeIds: _task.assignees.map((user) => user.id).toSet(),
+        initialRecurrence: _task.recurrence,
+        recurrenceReadOnly:
+            _task.recurrence.isRecurring && !_task.recurrence.isMaster,
         errorMessage: _friendlyError,
         onSubmit: (value) async {
           updatedTask = await _repository.updateTask(
@@ -115,6 +118,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             priority: value.priority,
             department: value.department,
             assignees: value.assignees,
+            recurrence: value.recurrence,
           );
         },
       ),
@@ -469,6 +473,35 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                       label: 'Departamento',
                       value: _task.department.name,
                     ),
+                    _InfoRow(
+                      icon: Icons.repeat_rounded,
+                      label: 'Programación',
+                      value: _task.recurrence.label,
+                    ),
+                    if (_task.recurrence.isRecurring)
+                      _InfoRow(
+                        icon: Icons.event_available_outlined,
+                        label: _task.recurrence.isMaster
+                            ? 'Primera ejecución'
+                            : 'Ejecución programada',
+                        value: _formatDate(
+                          _task.recurrence.scheduledFor ??
+                              _task.recurrence.startAt,
+                        ),
+                      ),
+                    if (_task.recurrence.isRecurring &&
+                        _task.recurrence.isMaster)
+                      _InfoRow(
+                        icon: Icons.update_rounded,
+                        label: 'Próxima ejecución',
+                        value: _formatDate(_task.recurrence.nextOccurrenceAt),
+                      ),
+                    if (_task.recurrence.isRecurring)
+                      _InfoRow(
+                        icon: Icons.notifications_active_outlined,
+                        label: 'Recordatorio',
+                        value: _task.recurrence.reminderLabel,
+                      ),
                     _InfoRow(
                       icon: Icons.groups_2_outlined,
                       label: 'Responsables',
@@ -981,7 +1014,9 @@ class _TaskActionBar extends StatelessWidget {
             ),
           ],
         ),
-        child: Center(
+        child: Align(
+          alignment: Alignment.center,
+          heightFactor: 1,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
             child: LayoutBuilder(
@@ -1020,6 +1055,7 @@ class _TaskActionBar extends StatelessWidget {
                 if (stackActions) {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
                       for (var index = 0; index < actions.length; index++) ...[
                         actions[index],

@@ -1,6 +1,7 @@
 import 'app_user.dart';
 import 'department.dart';
 import 'task_checklist.dart';
+import 'task_recurrence.dart';
 
 const Object _unset = Object();
 
@@ -38,6 +39,7 @@ class TaskItem {
     this.completedBy,
     this.completedAt,
     this.checklists = const <TaskChecklist>[],
+    this.recurrence = TaskRecurrence.none,
     this.syncState = LocalSyncState.synced,
     this.syncError,
   });
@@ -57,6 +59,7 @@ class TaskItem {
   final DateTime updatedAt;
   final DateTime? completedAt;
   final List<TaskChecklist> checklists;
+  final TaskRecurrence recurrence;
   final LocalSyncState syncState;
   final String? syncError;
 
@@ -139,6 +142,7 @@ class TaskItem {
           ? null
           : DateTime.parse(json['completed_at'] as String),
       checklists: checklists,
+      recurrence: TaskRecurrence.fromJson(json),
       syncState: syncState,
       syncError: syncError,
     );
@@ -159,6 +163,7 @@ class TaskItem {
     DateTime? updatedAt,
     Object? completedAt = _unset,
     List<TaskChecklist>? checklists,
+    TaskRecurrence? recurrence,
     LocalSyncState? syncState,
     Object? syncError = _unset,
   }) {
@@ -187,6 +192,7 @@ class TaskItem {
           ? this.completedAt
           : completedAt as DateTime?,
       checklists: checklists ?? this.checklists,
+      recurrence: recurrence ?? this.recurrence,
       syncState: syncState ?? this.syncState,
       syncError: identical(syncError, _unset)
           ? this.syncError
@@ -213,6 +219,7 @@ class TaskItem {
       'checklists': checklists
           .map((checklist) => checklist.toJson())
           .toList(growable: false),
+      ...recurrence.toStorageJson(),
     };
   }
 }

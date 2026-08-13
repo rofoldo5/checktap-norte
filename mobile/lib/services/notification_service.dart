@@ -6,18 +6,25 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
 import '../core/api_client.dart';
 import '../firebase_options.dart';
+import '../models/app_user.dart';
+import '../models/task_item.dart';
+import '../models/task_recurrence.dart';
 
-const AndroidNotificationChannel checkTapNotificationChannel =
-    AndroidNotificationChannel(
-      'checktap_high_importance',
-      'Notificaciones CheckTap',
-      description:
-          'Actividad, solicitudes de acceso y reportes diarios de CheckTap.',
-      importance: Importance.max,
-    );
+const AndroidNotificationChannel
+checkTapNotificationChannel = AndroidNotificationChannel(
+  'checktap_high_importance',
+  'Notificaciones CheckTap',
+  description:
+      'Actividad, tareas programadas, solicitudes de acceso y reportes de CheckTap.',
+  importance: Importance.max,
+);
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -61,6 +68,18 @@ class NotificationActivationResult {
   }
 }
 
+class _TaskReminderCandidate {
+  const _TaskReminderCandidate({
+    required this.task,
+    required this.occurrence,
+    required this.reminder,
+  });
+
+  final TaskItem task;
+  final tz.TZDateTime occurrence;
+  final tz.TZDateTime reminder;
+}
+
 class NotificationService {
   NotificationService._();
 
@@ -88,6 +107,9 @@ class NotificationService {
   DateTime? _lastRegistrationAt;
   bool _initialized = false;
   Future<void>? _initializationFuture;
+  Future<void>? _reminderSyncFuture;
+  bool _timezoneInitialized = false;
+  String _deviceTimezoneName = 'UTC';
 
   bool get initialized => _initialized;
 
@@ -123,6 +145,8 @@ class NotificationService {
 
   Future<void> _initializeInternal() async {
     try {
+      await _initializeTimezone();
+
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp(
           options: DefaultFirebaseOptions.currentPlatform,
@@ -229,6 +253,298 @@ class NotificationService {
       debugPrint('[FCM] Inicializacion no disponible: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
+  }
+
+  Future<void> _initializeTimezone() async {
+    if (_timezoneInitialized) {
+      return;
+    }
+    tzdata.initializeTimeZones();
+    try {
+      final info = await FlutterTimezone.getLocalTimezone();
+      final location = tz.getLocation(info.identifier);
+      tz.setLocalLocation(location);
+      _deviceTimezoneName = info.identifier;
+    } catch (error) {
+      tz.setLocalLocation(tz.UTC);
+      _deviceTimezoneName = 'UTC';
+      debugPrint('[NOTIFY] Zona horaria local no disponible: $error');
+    }
+    _timezoneInitialized = true;
+  }
+
+  Future<AndroidScheduleMode> _scheduleModeForReminders() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return AndroidScheduleMode.inexactAllowWhileIdle;
+    }
+    final android = _localNotifications
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    if (android == null) {
+      return AndroidScheduleMode.inexactAllowWhileIdle;
+    }
+
+    var canExact = await android.canScheduleExactNotifications() ?? false;
+    if (!canExact) {
+      final preferences = await SharedPreferences.getInstance();
+      const askedKey = 'checktap_exact_alarm_permission_asked';
+      final alreadyAsked = preferences.getBool(askedKey) ?? false;
+      if (!alreadyAsked) {
+        await preferences.setBool(askedKey, true);
+        try {
+          await android.requestExactAlarmsPermission();
+          canExact = await android.canScheduleExactNotifications() ?? false;
+        } catch (error) {
+          debugPrint('[NOTIFY] Permiso de alarma exacta no disponible: $error');
+        }
+      }
+    }
+    return canExact
+        ? AndroidScheduleMode.exactAllowWhileIdle
+        : AndroidScheduleMode.inexactAllowWhileIdle;
+  }
+
+  Future<void> clearTaskReminders() async {
+    try {
+      await initialize();
+      if (_initialized) {
+        await _localNotifications.cancelAllPendingNotifications();
+      }
+    } catch (error) {
+      debugPrint(
+        '[NOTIFY] No fue posible limpiar recordatorios locales: $error',
+      );
+    }
+  }
+
+  Future<void> syncTaskReminders(
+    List<TaskItem> tasks,
+    AppUser currentUser,
+  ) async {
+    final running = _reminderSyncFuture;
+    if (running != null) {
+      await running;
+      return;
+    }
+    final future = _syncTaskRemindersInternal(tasks, currentUser);
+    _reminderSyncFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_reminderSyncFuture, future)) {
+        _reminderSyncFuture = null;
+      }
+    }
+  }
+
+  Future<void> _syncTaskRemindersInternal(
+    List<TaskItem> tasks,
+    AppUser currentUser,
+  ) async {
+    await initialize();
+    if (!_initialized) {
+      return;
+    }
+
+    await _localNotifications.cancelAllPendingNotifications();
+
+    final masters = tasks
+        .where(
+          (task) =>
+              task.recurrence.isRecurring &&
+              task.recurrence.isMaster &&
+              task.recurrence.notificationsEnabled &&
+              (task.assignees.isEmpty ||
+                  task.assignees.any((user) => user.id == currentUser.id)),
+        )
+        .toList(growable: false);
+    if (masters.isEmpty) {
+      return;
+    }
+
+    final scheduleMode = await _scheduleModeForReminders();
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'checktap_high_importance',
+        'Notificaciones CheckTap',
+        channelDescription:
+            'Actividad, tareas programadas y reportes diarios de CheckTap.',
+        importance: Importance.max,
+        priority: Priority.high,
+        icon: 'ic_stat_checktap',
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    );
+
+    final now = tz.TZDateTime.now(tz.local);
+    const maxScheduled = 48;
+    final candidates = <_TaskReminderCandidate>[];
+
+    for (final task in masters) {
+      final recurrence = task.recurrence;
+      final location = _locationFor(recurrence.timezone);
+      final occurrences = _futureOccurrences(recurrence, location, limit: 16);
+      for (final occurrence in occurrences) {
+        final reminderLocal = occurrence.subtract(
+          Duration(minutes: recurrence.reminderMinutesBefore),
+        );
+        final reminder = tz.TZDateTime.from(reminderLocal, tz.local);
+        if (!reminder.isAfter(now)) {
+          continue;
+        }
+        candidates.add(
+          _TaskReminderCandidate(
+            task: task,
+            occurrence: occurrence,
+            reminder: reminder,
+          ),
+        );
+      }
+    }
+
+    candidates.sort((a, b) => a.reminder.compareTo(b.reminder));
+    final selected = candidates.take(maxScheduled);
+    var scheduledCount = 0;
+    for (final candidate in selected) {
+      final task = candidate.task;
+      final recurrence = task.recurrence;
+      final occurrence = candidate.occurrence;
+      final payload = jsonEncode(<String, String>{
+        'type': 'scheduled_task_reminder',
+        'task_id': task.id,
+        'series_id': recurrence.seriesId ?? task.id,
+        'scheduled_for': occurrence.toUtc().toIso8601String(),
+      });
+      await _localNotifications.zonedSchedule(
+        id: _stableReminderId(
+          recurrence.seriesId ?? task.id,
+          occurrence.toUtc(),
+        ),
+        title: task.title,
+        body: 'Tarea programada: ${recurrence.label}.',
+        scheduledDate: candidate.reminder,
+        notificationDetails: details,
+        androidScheduleMode: scheduleMode,
+        payload: payload,
+      );
+      scheduledCount += 1;
+    }
+
+    debugPrint(
+      '[NOTIFY] $scheduledCount recordatorios programados '
+      '(zona=$_deviceTimezoneName).',
+    );
+  }
+
+  tz.Location _locationFor(String name) {
+    try {
+      return tz.getLocation(name);
+    } catch (_) {
+      return tz.local;
+    }
+  }
+
+  List<tz.TZDateTime> _futureOccurrences(
+    TaskRecurrence recurrence,
+    tz.Location location, {
+    required int limit,
+  }) {
+    final start = recurrence.startAt;
+    if (start == null || !recurrence.isRecurring) {
+      return const <tz.TZDateTime>[];
+    }
+
+    final startLocal = tz.TZDateTime.from(start.toUtc(), location);
+    final nowUtc = DateTime.now().toUtc();
+    var current = startLocal;
+    var guard = 0;
+    final result = <tz.TZDateTime>[];
+
+    while (result.length < limit && guard < 10000) {
+      final reminderUtc = current
+          .subtract(Duration(minutes: recurrence.reminderMinutesBefore))
+          .toUtc();
+      if (reminderUtc.isAfter(nowUtc)) {
+        result.add(current);
+      }
+      current = _nextOccurrence(recurrence, current, startLocal);
+      guard += 1;
+    }
+    return result;
+  }
+
+  tz.TZDateTime _nextOccurrence(
+    TaskRecurrence recurrence,
+    tz.TZDateTime current,
+    tz.TZDateTime anchor,
+  ) {
+    int daysInMonth(int year, int month) {
+      final nextMonth = month == 12
+          ? DateTime.utc(year + 1, 1, 1)
+          : DateTime.utc(year, month + 1, 1);
+      return nextMonth.subtract(const Duration(days: 1)).day;
+    }
+
+    tz.TZDateTime addDays(int days) => tz.TZDateTime(
+      current.location,
+      current.year,
+      current.month,
+      current.day + days,
+      current.hour,
+      current.minute,
+      current.second,
+    );
+
+    tz.TZDateTime addMonths(int months) {
+      final total = current.year * 12 + (current.month - 1) + months;
+      final year = total ~/ 12;
+      final month = total % 12 + 1;
+      final day = anchor.day.clamp(1, daysInMonth(year, month)).toInt();
+      return tz.TZDateTime(
+        current.location,
+        year,
+        month,
+        day,
+        current.hour,
+        current.minute,
+        current.second,
+      );
+    }
+
+    switch (recurrence.type) {
+      case 'DAILY':
+        return addDays(1);
+      case 'WEEKLY':
+        return addDays(7);
+      case 'MONTHLY':
+        return addMonths(1);
+      case 'CUSTOM':
+        switch (recurrence.unit) {
+          case 'WEEKS':
+            return addDays(7 * recurrence.interval);
+          case 'MONTHS':
+            return addMonths(recurrence.interval);
+          default:
+            return addDays(recurrence.interval);
+        }
+      default:
+        return addDays(1);
+    }
+  }
+
+  int _stableReminderId(String seriesId, DateTime occurrenceUtc) {
+    var hash = 0x811c9dc5;
+    final input = '$seriesId:${occurrenceUtc.millisecondsSinceEpoch}';
+    for (final unit in input.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0x7fffffff;
+    }
+    return hash == 0 ? 1 : hash;
   }
 
   Future<NotificationActivationResult> requestPermissionOnLoginEntry() async {
@@ -591,7 +907,7 @@ class NotificationService {
         'checktap_high_importance',
         'Notificaciones CheckTap',
         channelDescription:
-            'Actividad, solicitudes de acceso y reportes diarios de CheckTap.',
+            'Actividad, tareas programadas, solicitudes de acceso y reportes de CheckTap.',
         importance: Importance.max,
         priority: Priority.high,
         icon: 'ic_stat_checktap',
@@ -635,7 +951,7 @@ class NotificationService {
         'checktap_high_importance',
         'Notificaciones CheckTap',
         channelDescription:
-            'Actividad, solicitudes de acceso y reportes diarios de CheckTap.',
+            'Actividad, tareas programadas, solicitudes de acceso y reportes de CheckTap.',
         importance: Importance.max,
         priority: Priority.high,
         icon: 'ic_stat_checktap',

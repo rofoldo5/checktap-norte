@@ -38,6 +38,11 @@ from app.services.checklist_service import (
 )
 from app.services.department_service import resolve_task_department
 from app.services.notification_service import notification_service
+from app.services.recurrence_service import (
+    configure_recurrence,
+    configure_recurrence_from_changes,
+    pop_recurrence_changes,
+)
 from app.services.task_permissions import (
     require_task_edit,
     require_task_reopen,
@@ -125,6 +130,16 @@ def _apply_create(
     )
     db.add(task)
     db.flush()
+    configure_recurrence(
+        task,
+        recurrence_type=payload.recurrence_type,
+        recurrence_interval=payload.recurrence_interval,
+        recurrence_unit=payload.recurrence_unit,
+        recurrence_start_at=payload.recurrence_start_at,
+        recurrence_timezone=payload.recurrence_timezone,
+        notifications_enabled=payload.notifications_enabled,
+        reminder_minutes_before=payload.reminder_minutes_before,
+    )
     set_task_assignees(db, task, payload.assignee_ids)
     db.flush()
     task = get_task_or_404(db, task.id, current_user)
@@ -154,6 +169,13 @@ def _apply_update(
     values = payload.model_dump(exclude_unset=True)
     assignee_ids = values.pop("assignee_ids", None)
     values.pop("assigned_to_id", None)
+    recurrence_changes = pop_recurrence_changes(values)
+    recurrence_changed = False
+    if recurrence_changes:
+        recurrence_changed = configure_recurrence_from_changes(
+            task,
+            recurrence_changes,
+        )
 
     department_changed = False
     if "department_id" in values:
@@ -169,7 +191,7 @@ def _apply_update(
     if assignee_ids is not None:
         set_task_assignees(db, task, assignee_ids)
 
-    if values or assignee_ids is not None:
+    if values or assignee_ids is not None or recurrence_changed:
         task.version += 1
         task.updated_at = datetime.now(UTC)
     db.add(task)
@@ -182,7 +204,9 @@ def _apply_update(
             task=_task_read(task),
         ),
         "task.updated",
-        "task_updated" if values or assignee_ids is not None else None,
+        "task_updated"
+        if values or assignee_ids is not None or recurrence_changed
+        else None,
         None,
     )
 

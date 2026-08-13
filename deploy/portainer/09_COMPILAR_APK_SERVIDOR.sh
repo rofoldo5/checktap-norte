@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 API_BASE_URL="${API_BASE_URL:-http://192.168.30.51:8080}"
-VERSION="${VERSION:-0.13.0}"
+VERSION="${VERSION:-0.14.0}"
 OUTPUT_DIR="$PROJECT_DIR/dist"
 
 command -v flutter >/dev/null 2>&1 || {

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -78,6 +78,38 @@ class Task(Base):
         DateTime(timezone=True),
         index=True,
         nullable=True,
+    )
+
+    # Programacion recurrente. La tarea maestra representa la primera
+    # ejecucion y sirve como plantilla para las siguientes ocurrencias.
+    recurrence_type: Mapped[str] = mapped_column(
+        String(20), default="NONE", nullable=False, index=True
+    )
+    recurrence_interval: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    recurrence_unit: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    recurrence_start_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    recurrence_timezone: Mapped[str] = mapped_column(
+        String(80), default="UTC", nullable=False
+    )
+    next_occurrence_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    notifications_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    reminder_minutes_before: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    recurrence_series_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
+    is_recurrence_master: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, index=True
+    )
+    scheduled_for: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
     )
 
     department: Mapped["Department"] = relationship(lazy="joined")

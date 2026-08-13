@@ -2,7 +2,7 @@
 set -euo pipefail
 
 API_BASE_URL="${API_BASE_URL:-http://192.168.30.51:8080}"
-VERSION="${VERSION:-0.13.0}"
+VERSION="${VERSION:-0.14.0}"
 MOBILE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_DIR="$(cd "$MOBILE_DIR/.." && pwd)"
 OUTPUT_DIR="$PROJECT_DIR/dist"

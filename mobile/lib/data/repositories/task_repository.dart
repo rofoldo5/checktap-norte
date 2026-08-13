@@ -8,6 +8,7 @@ import '../../models/department.dart';
 import '../../models/sync_operation.dart';
 import '../../models/task_checklist.dart';
 import '../../models/task_item.dart';
+import '../../models/task_recurrence.dart';
 import '../../services/sync_service.dart';
 import '../../services/task_service.dart';
 import '../local/offline_cache_service.dart';
@@ -99,6 +100,7 @@ class TaskRepository {
     required String priority,
     required DepartmentSummary department,
     List<AppUser> assignees = const <AppUser>[],
+    TaskRecurrence recurrence = TaskRecurrence.none,
   }) async {
     final normalizedTitle = _validateTitle(title);
     final normalizedDescription = _normalizeDescription(description);
@@ -114,6 +116,7 @@ class TaskRepository {
       createdBy: currentUser,
       assignees: assignees,
       assignedTo: assignees.isEmpty ? null : assignees.first,
+      recurrence: recurrence,
       createdAt: now,
       updatedAt: now,
       syncState: LocalSyncState.pending,
@@ -140,8 +143,13 @@ class TaskRepository {
     required String priority,
     DepartmentSummary? department,
     List<AppUser>? assignees,
+    TaskRecurrence? recurrence,
   }) async {
     final selectedAssignees = assignees ?? task.assignees;
+    final recurrenceEditable = task.recurrence.canEditSchedule;
+    final selectedRecurrence = recurrenceEditable
+        ? (recurrence ?? task.recurrence)
+        : task.recurrence;
     final selectedDepartment = department ?? task.department;
     final updated = task.copyWith(
       title: _validateTitle(title),
@@ -150,11 +158,15 @@ class TaskRepository {
       department: selectedDepartment,
       assignees: selectedAssignees,
       assignedTo: selectedAssignees.isEmpty ? null : selectedAssignees.first,
+      recurrence: selectedRecurrence,
       updatedAt: DateTime.now().toUtc(),
       syncState: LocalSyncState.pending,
       syncError: null,
     );
-    final payload = _taskEditPayload(updated);
+    final payload = _taskEditPayload(
+      updated,
+      includeRecurrence: recurrenceEditable,
+    );
     await _cache.upsertTask(updated);
 
     if (task.version == 0) {
@@ -791,7 +803,10 @@ class TaskRepository {
     return normalized.isEmpty ? null : normalized;
   }
 
-  Map<String, dynamic> _taskEditPayload(TaskItem task) {
+  Map<String, dynamic> _taskEditPayload(
+    TaskItem task, {
+    bool includeRecurrence = true,
+  }) {
     final departmentId = task.department.id == DepartmentSummary.unknown.id
         ? null
         : task.department.id;
@@ -802,6 +817,7 @@ class TaskRepository {
       'department_id': departmentId,
       'assignee_ids': task.assignees.map((user) => user.id).toList(),
       'assigned_to_id': task.assignedTo?.id,
+      if (includeRecurrence) ...task.recurrence.toApiJson(),
     };
   }
 
